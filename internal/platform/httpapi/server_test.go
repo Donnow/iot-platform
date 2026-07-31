@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"iot-perform/internal/platform/domain"
 	"iot-perform/internal/platform/memory"
+	"iot-perform/internal/platform/observability"
 )
 
 func TestHealthAndProductRoutes(t *testing.T) {
@@ -70,6 +72,45 @@ func TestBearerAuthorizer(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("authorized status=%d", response.Code)
+	}
+}
+
+func TestEMQXInternalHooksAndMetrics(t *testing.T) {
+	metrics := observability.NewMetrics()
+	var lifecycle struct {
+		deviceID string
+		online   bool
+		at       time.Time
+	}
+	server := NewServerWithOptions(memory.New().Repositories(), nil, nil, metrics, InternalHooks{
+		Authenticate: func(_ context.Context, deviceID, secret string) (InternalAuthResult, error) {
+			return InternalAuthResult{Allow: deviceID == "d1" && secret == "secret", ACL: []InternalACLRule{{Topic: "devices/pk/d1/telemetry", Action: "publish"}}}, nil
+		},
+		Lifecycle: func(_ context.Context, deviceID string, online bool, at time.Time) error {
+			lifecycle.deviceID, lifecycle.online, lifecycle.at = deviceID, online, at
+			return nil
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/internal/emqx/auth", jsonBody(t, map[string]any{"clientid": "d1", "password": "secret"}))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"allow"`) {
+		t.Fatalf("auth response=%d body=%s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/internal/emqx/webhook", jsonBody(t, map[string]any{"event": "client.connected", "clientid": "d1", "timestamp": int64(1722000000000)}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || lifecycle.deviceID != "d1" || !lifecycle.online || lifecycle.at.UnixMilli() != 1722000000000 {
+		t.Fatalf("lifecycle response=%d state=%#v body=%s", response.Code, lifecycle, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "iot_platform_http_requests_total") {
+		t.Fatalf("metrics response=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

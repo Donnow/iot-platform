@@ -95,14 +95,26 @@ func (c *Client) Close(context.Context) error {
 }
 
 type Service struct {
-	repos  repository.Repositories
-	client *Client
-	logger *slog.Logger
+	repos   repository.Repositories
+	client  *Client
+	logger  *slog.Logger
+	metrics Metrics
 
 	mu sync.Mutex
 }
 
+type Metrics interface {
+	IncMQTTMessages()
+	IncMQTTErrors()
+	IncRuleMatches()
+	IncAlarmsCreated()
+}
+
 func NewService(config Config, repos repository.Repositories, logger *slog.Logger) (*Service, error) {
+	return NewServiceWithMetrics(config, repos, logger, nil)
+}
+
+func NewServiceWithMetrics(config Config, repos repository.Repositories, logger *slog.Logger, metrics Metrics) (*Service, error) {
 	client, err := NewClient(config)
 	if err != nil {
 		return nil, err
@@ -110,14 +122,18 @@ func NewService(config Config, repos repository.Repositories, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger}, nil
+	return &Service{repos: repos, client: client, logger: logger, metrics: metrics}, nil
 }
 
 func NewServiceWithClient(client *Client, repos repository.Repositories, logger *slog.Logger) *Service {
+	return NewServiceWithClientAndMetrics(client, repos, logger, nil)
+}
+
+func NewServiceWithClientAndMetrics(client *Client, repos repository.Repositories, logger *slog.Logger, metrics Metrics) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger}
+	return &Service{repos: repos, client: client, logger: logger, metrics: metrics}
 }
 
 func (s *Service) Start(ctx context.Context) error {
@@ -131,6 +147,9 @@ func (s *Service) Start(ctx context.Context) error {
 		topic := topic
 		if err := s.client.Subscribe(ctx, topic, func(topic string, payload []byte) {
 			if err := s.ProcessMessage(context.Background(), topic, payload); err != nil {
+				if s.metrics != nil {
+					s.metrics.IncMQTTErrors()
+				}
 				s.logger.Error("process MQTT message", "topic", topic, "error", err)
 			}
 		}); err != nil {
@@ -155,6 +174,9 @@ func (s *Service) Publish(ctx context.Context, topic string, qos byte, retained 
 }
 
 func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []byte) error {
+	if s.metrics != nil {
+		s.metrics.IncMQTTMessages()
+	}
 	productKey, deviceID, suffix, err := ParseDeviceTopic(topic)
 	if err != nil {
 		return err
@@ -243,7 +265,25 @@ func (s *Service) SetLifecycle(ctx context.Context, deviceID string, online bool
 	if online {
 		status = domain.DeviceStatusOnline
 	}
-	return s.repos.Devices.SetDeviceStatus(ctx, deviceID, status, &at)
+	if err := s.repos.Devices.SetDeviceStatus(ctx, deviceID, status, &at); err != nil {
+		return err
+	}
+	if !online || s.client == nil {
+		return nil
+	}
+	shadow, err := s.repos.Shadows.GetShadow(ctx, deviceID)
+	if err != nil || len(shadow.Delta) == 0 {
+		return err
+	}
+	device, err := s.repos.Devices.GetDevice(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(shadow.Desired)
+	if err != nil {
+		return err
+	}
+	return s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), messaging.QoSAtLeastOnce, false, payload)
 }
 
 func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) error {
@@ -255,12 +295,18 @@ func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) er
 		if !rule.Enabled || !matches(rule.Operator, sample.Values[rule.PropertyName], rule.Threshold) {
 			continue
 		}
+		if s.metrics != nil {
+			s.metrics.IncRuleMatches()
+		}
 		value, ok := numberValue(sample.Values[rule.PropertyName])
 		if !ok {
 			continue
 		}
 		if _, err := s.repos.Alarms.CreateAlarm(ctx, domain.Alarm{DeviceID: sample.DeviceID, RuleID: rule.ID, TriggerValue: value, TriggeredAt: sample.Timestamp}); err != nil {
 			return err
+		}
+		if s.metrics != nil {
+			s.metrics.IncAlarmsCreated()
 		}
 	}
 	return nil

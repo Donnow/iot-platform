@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 
 	"iot-perform/internal/platform/domain"
 	"iot-perform/internal/platform/messaging"
+	"iot-perform/internal/platform/observability"
 	"iot-perform/internal/platform/repository"
 )
 
@@ -40,26 +42,58 @@ func (a BearerTokenAuthorizer) Authorize(request *http.Request) error {
 	return nil
 }
 
+type InternalACLRule struct {
+	Topic  string `json:"topic"`
+	Action string `json:"action"`
+}
+
+type InternalAuthResult struct {
+	Allow bool
+	ACL   []InternalACLRule
+}
+
+type InternalHooks struct {
+	Authenticate func(context.Context, string, string) (InternalAuthResult, error)
+	Lifecycle    func(context.Context, string, bool, time.Time) error
+}
+
 type Server struct {
 	repos      repository.Repositories
 	publisher  messaging.Publisher
 	authorizer Authorizer
+	metrics    *observability.Metrics
+	hooks      InternalHooks
 }
 
 func NewServer(repos repository.Repositories, publisher messaging.Publisher, authorizer Authorizer) *Server {
+	return NewServerWithOptions(repos, publisher, authorizer, nil, InternalHooks{})
+}
+
+func NewServerWithOptions(repos repository.Repositories, publisher messaging.Publisher, authorizer Authorizer, metrics *observability.Metrics, hooks InternalHooks) *Server {
 	if authorizer == nil {
 		authorizer = AllowAllAuthorizer{}
 	}
-	return &Server{repos: repos, publisher: publisher, authorizer: authorizer}
+	return &Server{repos: repos, publisher: publisher, authorizer: authorizer, metrics: metrics, hooks: hooks}
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if s.metrics != nil {
+		s.metrics.IncHTTPRequests()
+	}
 	if request.URL.Path == "/healthz" {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 	if request.URL.Path == "/metrics" {
+		if s.metrics != nil {
+			s.metrics.Handler().ServeHTTP(writer, request)
+			return
+		}
 		writeJSON(writer, http.StatusOK, map[string]any{"backend_http_requests_total": 1})
+		return
+	}
+	if strings.HasPrefix(request.URL.Path, "/internal/emqx/") {
+		s.handleEMQX(writer, request)
 		return
 	}
 	if err := s.authorizer.Authorize(request); err != nil {
@@ -80,6 +114,95 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.handleAlarms(writer, request, segments[2:])
 	case "rules":
 		s.handleRules(writer, request, segments[2:])
+	default:
+		writeError(writer, http.StatusNotFound, errors.New("route not found"))
+	}
+}
+
+func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writeError(writer, http.StatusMethodNotAllowed, errors.New("method not allowed"))
+		return
+	}
+	switch request.URL.Path {
+	case "/internal/emqx/auth":
+		if s.hooks.Authenticate == nil {
+			writeError(writer, http.StatusNotImplemented, errors.New("EMQX authentication is not configured"))
+			return
+		}
+		var input struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			ClientID string `json:"clientid"`
+		}
+		if err := readJSON(request, &input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		deviceID := strings.TrimSpace(input.Username)
+		if deviceID == "" {
+			deviceID = strings.TrimSpace(input.ClientID)
+		}
+		result, err := s.hooks.Authenticate(request.Context(), deviceID, input.Password)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err)
+			return
+		}
+		response := map[string]any{"result": "deny"}
+		if result.Allow {
+			response["result"] = "allow"
+			if len(result.ACL) > 0 {
+				response["acl"] = result.ACL
+			}
+		}
+		writeJSON(writer, http.StatusOK, response)
+	case "/internal/emqx/webhook":
+		if s.hooks.Lifecycle == nil {
+			writeError(writer, http.StatusNotImplemented, errors.New("EMQX lifecycle webhook is not configured"))
+			return
+		}
+		var input struct {
+			Event     string `json:"event"`
+			Action    string `json:"action"`
+			ClientID  string `json:"clientid"`
+			DeviceID  string `json:"device_id"`
+			Timestamp int64  `json:"timestamp"`
+		}
+		if err := readJSON(request, &input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		event := strings.ToLower(strings.ReplaceAll(input.Event, "_", "."))
+		if event == "" {
+			event = strings.ToLower(strings.ReplaceAll(input.Action, "_", "."))
+		}
+		var online bool
+		switch event {
+		case "client.connected", "client.connect":
+			online = true
+		case "client.disconnected", "client.disconnect":
+			online = false
+		default:
+			writeError(writer, http.StatusBadRequest, errors.New("event must be client.connected or client.disconnected"))
+			return
+		}
+		deviceID := strings.TrimSpace(input.DeviceID)
+		if deviceID == "" {
+			deviceID = strings.TrimSpace(input.ClientID)
+		}
+		if deviceID == "" {
+			writeError(writer, http.StatusBadRequest, errors.New("device_id or clientid is required"))
+			return
+		}
+		at := time.Now().UTC()
+		if input.Timestamp > 0 {
+			at = time.UnixMilli(input.Timestamp).UTC()
+		}
+		if err := s.hooks.Lifecycle(request.Context(), deviceID, online, at); err != nil {
+			writeRepositoryError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 	default:
 		writeError(writer, http.StatusNotFound, errors.New("route not found"))
 	}
