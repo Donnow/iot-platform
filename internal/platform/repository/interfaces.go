@@ -44,46 +44,46 @@ type AlarmFilter struct {
 }
 
 type ProductRepository interface {
-	Create(context.Context, domain.Product) (domain.Product, error)
-	GetByKey(context.Context, string) (domain.Product, error)
-	List(context.Context, ProductFilter) ([]domain.Product, Page, error)
+	CreateProduct(context.Context, domain.Product) (domain.Product, error)
+	GetProductByKey(context.Context, string) (domain.Product, error)
+	ListProducts(context.Context, ProductFilter) ([]domain.Product, Page, error)
 }
 
 type DeviceRepository interface {
-	Create(context.Context, domain.Device) (domain.Device, error)
-	Get(context.Context, string) (domain.Device, error)
-	List(context.Context, DeviceFilter) ([]domain.Device, Page, error)
-	SetStatus(context.Context, string, domain.DeviceStatus, *time.Time) error
-	SoftDelete(context.Context, string) error
-	Authenticate(context.Context, string, string) (domain.Device, error)
+	CreateDevice(context.Context, domain.Device) (domain.Device, error)
+	GetDevice(context.Context, string) (domain.Device, error)
+	ListDevices(context.Context, DeviceFilter) ([]domain.Device, Page, error)
+	SetDeviceStatus(context.Context, string, domain.DeviceStatus, *time.Time) error
+	SoftDeleteDevice(context.Context, string) error
+	AuthenticateDevice(context.Context, string, string) (domain.Device, error)
 }
 
 type TelemetryRepository interface {
-	Append(context.Context, domain.Telemetry) error
-	Query(context.Context, TelemetryQuery) ([]domain.Telemetry, error)
-	Snapshot(context.Context, string) (map[string]domain.Telemetry, error)
+	AppendTelemetry(context.Context, domain.Telemetry) error
+	QueryTelemetry(context.Context, TelemetryQuery) ([]domain.Telemetry, error)
+	SnapshotTelemetry(context.Context, string) (map[string]domain.Telemetry, error)
 }
 
 type RuleRepository interface {
-	Create(context.Context, domain.Rule) (domain.Rule, error)
-	ListByProduct(context.Context, string) ([]domain.Rule, error)
+	CreateRule(context.Context, domain.Rule) (domain.Rule, error)
+	ListRulesByProduct(context.Context, string) ([]domain.Rule, error)
 }
 
 type AlarmRepository interface {
-	Create(context.Context, domain.Alarm) (domain.Alarm, error)
-	Get(context.Context, string) (domain.Alarm, error)
-	List(context.Context, AlarmFilter) ([]domain.Alarm, Page, error)
-	Resolve(context.Context, string, time.Time, string) error
+	CreateAlarm(context.Context, domain.Alarm) (domain.Alarm, error)
+	GetAlarm(context.Context, string) (domain.Alarm, error)
+	ListAlarms(context.Context, AlarmFilter) ([]domain.Alarm, Page, error)
+	ResolveAlarm(context.Context, string, time.Time, string) error
 }
 
 type CommandRepository interface {
-	Create(context.Context, domain.Command) (domain.Command, error)
-	Get(context.Context, string, string) (domain.Command, error)
-	UpdateStatus(context.Context, string, domain.CommandStatus, string, time.Time) error
+	CreateCommand(context.Context, domain.Command) (domain.Command, error)
+	GetCommand(context.Context, string, string) (domain.Command, error)
+	UpdateCommandStatus(context.Context, string, domain.CommandStatus, string, time.Time) error
 }
 
 type ShadowRepository interface {
-	Get(context.Context, string) (domain.Shadow, error)
+	GetShadow(context.Context, string) (domain.Shadow, error)
 	UpsertDesired(context.Context, string, map[string]any) (domain.Shadow, error)
 	UpsertReported(context.Context, string, map[string]any) (domain.Shadow, error)
 }
