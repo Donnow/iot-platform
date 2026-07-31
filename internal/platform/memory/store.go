@@ -16,8 +16,8 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("already exists")
+	ErrNotFound = repository.ErrNotFound
+	ErrConflict = repository.ErrConflict
 )
 
 type Store struct {
