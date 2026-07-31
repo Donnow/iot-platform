@@ -87,3 +87,13 @@ type ShadowRepository interface {
 	UpsertDesired(context.Context, string, map[string]any) (domain.Shadow, error)
 	UpsertReported(context.Context, string, map[string]any) (domain.Shadow, error)
 }
+
+type Repositories struct {
+	Products  ProductRepository
+	Devices   DeviceRepository
+	Telemetry TelemetryRepository
+	Rules     RuleRepository
+	Alarms    AlarmRepository
+	Commands  CommandRepository
+	Shadows   ShadowRepository
+}
