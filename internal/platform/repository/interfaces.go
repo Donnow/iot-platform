@@ -2,9 +2,15 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"iot-perform/internal/platform/domain"
+)
+
+var (
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("already exists")
 )
 
 type Page struct {
