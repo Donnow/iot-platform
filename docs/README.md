@@ -14,6 +14,7 @@ docs/
 ├── testing/                          # 测试计划、测试合同和验收记录
 │   └── device-simulator-test-plan.md
 └── operations/                       # 部署、配置、运行手册和压测报告
+    └── device-simulator.md
 ```
 
 当前已建立需求基线和设备模拟器测试合同；其他目录在产生对应内容时再创建，避免提交空目录。
@@ -24,6 +25,7 @@ docs/
 | --- | --- | --- |
 | [IoT 平台需求规格说明书](requirements/iot-platform-srs.md) | 产品范围、功能需求、协议规范和里程碑基线 | Baseline |
 | [设备模拟器测试合同](testing/device-simulator-test-plan.md) | 模拟器的行为、协议、联调和压力验收标准 | Draft |
+| [设备模拟器运行手册](operations/device-simulator.md) | 模拟器启动、凭据、压力模式和重连说明 | Draft |
 
 ## 命名和编排规范
 
@@ -43,4 +45,3 @@ docs/
 - MQTT topic、payload 或 HTTP API 变化：同步更新 `api/` 和相关测试文档。
 - 行为或性能标准变化：同步更新 `testing/` 文档，并说明受影响的测试编号。
 - 部署参数、环境变量或排障流程变化：更新 `operations/` 文档。
-
