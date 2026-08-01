@@ -50,7 +50,14 @@ func NewClient(config Config) (*Client, error) {
 	options.SetClientID(config.ClientID)
 	options.SetUsername(config.Username)
 	options.SetPassword(config.Password)
+	// A persistent session with ResumeSubs: paho only re-subscribes on
+	// reconnect when CleanSession is false (with CleanSession true it resets
+	// its subscription store), and without ResumeSubs it assumes the broker
+	// session survives. A broker restart wipes the session, which would leave
+	// the platform silently disconnected from all device topics; ResumeSubs
+	// restores the shared subscriptions on every (re)connect instead.
 	options.SetCleanSession(false)
+	options.SetResumeSubs(true)
 	options.SetAutoReconnect(true)
 	options.SetConnectionLostHandler(func(_ paho.Client, err error) {
 		select {
@@ -159,6 +166,18 @@ func (s *Service) Start(ctx context.Context) error {
 	if err := s.client.Connect(ctx); err != nil {
 		return err
 	}
+	if err := s.subscribeAll(ctx); err != nil {
+		return err
+	}
+	// paho only re-sends subscriptions that were still pending when the
+	// connection dropped; long-established subscriptions are lost on a broker
+	// restart. Watch the lost channel and re-issue them (paho queues
+	// subscribe requests until the connection is restored).
+	go s.watchLost(ctx)
+	return nil
+}
+
+func (s *Service) subscribeAll(ctx context.Context) error {
 	for _, topic := range []string{telemetrySubscription, eventSubscription, commandReplySubscription, shadowReportedSubscription} {
 		topic := topic
 		if err := s.client.Subscribe(ctx, topic, func(topic string, payload []byte) {
@@ -173,6 +192,18 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) watchLost(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-s.client.Lost():
+			s.logger.Warn("MQTT connection lost; re-subscribing", "error", err)
+			_ = s.subscribeAll(context.Background())
+		}
+	}
 }
 
 func (s *Service) Stop(ctx context.Context) error {
