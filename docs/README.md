@@ -11,13 +11,15 @@ docs/
 │   └── iot-platform-srs.md
 ├── design/                           # 架构和关键技术设计
 ├── api/                              # HTTP、MQTT 和内部接口契约
-│   └── backend-api.md
+│   ├── backend-api.md
+│   └── openapi.yaml
 ├── testing/                          # 测试计划、测试合同和验收记录
 │   ├── backend-test-plan.md
 │   └── device-simulator-test-plan.md
 └── operations/                       # 部署、配置、运行手册和压测报告
     ├── device-simulator.md
-    └── platform.md
+    ├── platform.md
+    └── load-test.md
 ```
 
 当前已建立需求基线和设备模拟器测试合同；其他目录在产生对应内容时再创建，避免提交空目录。
@@ -31,7 +33,15 @@ docs/
 | [后端测试计划](testing/backend-test-plan.md) | 后端单元、进程内集成和运行时校验 | Draft |
 | [设备模拟器运行手册](operations/device-simulator.md) | 模拟器启动、凭据、压力模式和重连说明 | Draft |
 | [后端接口与消息契约](api/backend-api.md) | HTTP、MQTT、EMQX 内部回调和当前实现边界 | Draft |
+| [OpenAPI 契约](api/openapi.yaml) | 可导入 Swagger UI 的 HTTP 接口定义 | Review |
 | [后端平台运行手册](operations/platform.md) | Compose 启动、健康检查、指标和排障 | Draft |
+| [平台架构](design/architecture.md) | 运行拓扑、数据职责和启动模式 | Draft |
+| [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
+
+运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
+`http://localhost:8080/openapi.yaml`。嵌入式契约位于
+`internal/platform/httpapi/openapi.yaml`，修改 API 时需要同步更新
+`api/openapi.yaml`。
 
 ## 命名和编排规范
 

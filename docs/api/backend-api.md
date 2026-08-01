@@ -10,6 +10,8 @@
 
 除 `/healthz`、`/metrics` 和 `/internal/emqx/*` 外，`/api/*` 请求需要携带
 `Authorization: Bearer <JWT>`。JWT 使用 HS256，签名密钥由 `IOT_JWT_SECRET` 提供。
+OpenAPI 原始文档为 `/openapi.yaml`，Swagger UI 为 `/docs`；两者均不需要 JWT，便于
+在部署环境中查看契约。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -19,7 +21,7 @@
 | GET | `/api/devices?product_key=&status=` | 分页查询设备 |
 | GET | `/api/devices/:id` | 查询设备 |
 | DELETE | `/api/devices/:id` | 软删除设备 |
-| GET | `/api/devices/:id/telemetry` | 查询遥测；支持 `metric`、`from`、`to`、`limit` |
+| GET | `/api/devices/:id/telemetry` | 查询遥测；支持 `metric`、`from`、`to`、`interval`、`limit` |
 | GET | `/api/devices/:id/snapshot` | 查询每个属性的最新遥测 |
 | GET | `/api/devices/:id/shadow` | 查询 desired/reported/delta |
 | PUT | `/api/devices/:id/shadow/desired` | 更新 desired 并发布 MQTT 消息 |
@@ -113,5 +115,6 @@ OTA 进度事件沿用设备 `event` topic，格式为
 
 ## 当前实现边界
 
-当前可运行服务使用线程安全内存仓储完成端到端联调；PostgreSQL、Redis 和
-TDengine 已纳入 Compose 基础设施与配置契约，但持久化仓储适配器仍是后续阶段。
+平台默认使用 PostgreSQL、Redis 和 TDengine 持久化仓储；设置
+`IOT_STORAGE_MODE=memory` 可切换为不依赖外部服务的内存仓储，用于快速开发和普通单测。
+规则持续时间窗口仍是进程内状态，服务重启后按需求允许重置。

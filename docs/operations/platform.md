@@ -18,13 +18,19 @@ docker compose up --build
 
 管理台入口为 `http://localhost:3000`，后端入口为 `http://localhost:8080`，EMQX MQTT 端口为 `1883`，Dashboard
 端口为 `18083`。Compose 使用持久化 volume 保存 PostgreSQL、Redis 和 TDengine
-数据；当前 Go 服务的数据仓储仍使用内存实现，服务重启后业务数据会重置。
+数据；Go 服务默认使用 PostgreSQL、Redis 和 TDengine 持久化仓储。
 
-不启动 Compose 也可以直接运行服务，但必须确保 MQTT broker 可连接：
+API 文档可从 `http://localhost:8080/docs` 打开，机器可读契约在
+`http://localhost:8080/openapi.yaml`。
+
+不启动 Compose 也可以使用内存仓储快速运行服务：
 
 ```bash
-IOT_MQTT_BROKER_URL=tcp://localhost:1883 go run ./cmd/platform
+IOT_STORAGE_MODE=memory IOT_MQTT_BROKER_URL=tcp://localhost:1883 go run ./cmd/platform
 ```
+
+直接使用持久化模式时，还需要本机 PostgreSQL、Redis 和 TDengine 已启动，并通过
+`IOT_DATABASE_URL`、`IOT_REDIS_ADDR` 和 `IOT_TDENGINE_URL` 指向它们。
 
 服务会先提供 HTTP，再以指数退避重试 MQTT 连接；收到 SIGINT 或 SIGTERM 时会
 停止消费、断开 MQTT 并优雅关闭 HTTP 连接。
@@ -38,6 +44,10 @@ curl http://localhost:8080/metrics
 
 `/metrics` 输出 Prometheus text format，当前包含 HTTP 请求、MQTT 消息、MQTT
 处理错误、规则命中和告警创建计数器。
+
+平台启动前会等待 PostgreSQL、Redis 和 TDengine 完成连接及 schema 初始化；Compose
+通过 healthcheck 控制启动顺序。Redis 保存在线状态 TTL 和影子缓存，PostgreSQL 保存
+产品、设备、规则、告警、指令和 OTA 元数据，TDengine 保存遥测 JSON payload。
 
 ## EMQX 回调
 

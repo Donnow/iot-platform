@@ -85,6 +85,14 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
+	if request.URL.Path == "/openapi.yaml" {
+		serveOpenAPI(writer, request)
+		return
+	}
+	if request.URL.Path == "/docs" || request.URL.Path == "/docs/" {
+		serveSwaggerUI(writer, request)
+		return
+	}
 	if request.URL.Path == "/metrics" {
 		if s.metrics != nil {
 			s.metrics.Handler().ServeHTTP(writer, request)

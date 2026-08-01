@@ -8,7 +8,7 @@
 
 ## 测试分层
 
-普通 `go test ./...` 覆盖设备、内存仓储、HTTP 路由、MQTT payload 解析、规则、影子和 OTA 进度汇总。测试使用内存仓储和记录型 publisher，不依赖外部服务。
+普通 `go test ./...` 覆盖设备、内存仓储、HTTP 路由、OpenAPI 静态入口、MQTT payload 解析、规则、影子和 OTA 进度汇总；同时覆盖 TDengine REST 客户端的 schema、写入、查询和聚合。测试使用内存仓储和记录型 publisher，不依赖外部服务。
 
 `integration` 标签增加跨模块链路：HTTP 创建固件与 OTA 任务，MQTT 处理设备进度事件，再通过 HTTP 查询任务阶段汇总。
 
@@ -31,6 +31,7 @@ GOCACHE=/tmp/iot-perform-go-cache go build ./...
 | OTA-BE-05 | `ota_progress` 更新设备状态，并正确返回各阶段数量 |
 | OTA-BE-06 | 非法阶段、非整数进度和超出 0-100 的进度被拒绝 |
 
-## 运行边界
+## 持久化与运行边界
 
-当前测试验证的是内存仓储的端到端联调。PostgreSQL、Redis 和 TDengine 已在 Compose 中声明，但业务仓储适配器尚未接入；外部 broker、数据库和 1000 设备压力测试属于部署环境验收，不由默认测试命令隐式启动。
+持久化仓储通过 `IOT_STORAGE_MODE=persistent` 使用 PostgreSQL、Redis 和 TDengine；普通测试不隐式启动外部服务。部署验收应先执行 `docker compose up --build`，再运行
+`docs/operations/load-test.md` 中的联调和压测命令。

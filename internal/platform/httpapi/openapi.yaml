@@ -1,0 +1,236 @@
+openapi: 3.0.3
+info:
+  title: IoT Perform Platform API
+  version: 0.1.0
+  description: HTTP API for products, devices, telemetry, rules, alarms, shadows, commands and OTA.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        '200':
+          description: Service is ready for HTTP requests
+  /metrics:
+    get:
+      security: []
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Prometheus text format
+  /api/products:
+    get:
+      summary: List products
+      parameters: [Page, PageSize]
+      responses:
+        '200': {description: Product page}
+    post:
+      summary: Create a product
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductInput'}}}}
+      responses:
+        '201': {description: Product created, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+  /api/devices:
+    get:
+      summary: List devices
+      parameters:
+        - {$ref: '#/components/parameters/ProductKey'}
+        - {$ref: '#/components/parameters/Status'}
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+      responses: {'200': {description: Device page}}
+    post:
+      summary: Register a device
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DeviceInput'}}}}
+      responses: {'201': {description: Device created}}
+  /api/devices/{deviceId}:
+    parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+    get:
+      summary: Get a device
+      responses: {'200': {description: Device}}
+    delete:
+      summary: Soft-delete a device
+      responses: {'204': {description: Device deleted}}
+  /api/devices/{deviceId}/telemetry:
+    get:
+      summary: Query device telemetry
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+        - {name: metric, in: query, schema: {type: string}}
+        - {name: from, in: query, description: Unix seconds, schema: {type: integer, format: int64}}
+        - {name: to, in: query, description: Unix seconds, schema: {type: integer, format: int64}}
+        - {name: interval, in: query, schema: {type: string, enum: [raw, 1m, 5m, 1h]}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 10000, default: 100}}
+      responses: {'200': {description: Telemetry samples}}
+  /api/devices/{deviceId}/snapshot:
+    get:
+      summary: Get the latest value for each metric
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      responses: {'200': {description: Latest telemetry by metric}}
+  /api/devices/{deviceId}/shadow:
+    get:
+      summary: Get device shadow
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      responses: {'200': {description: Device shadow}}
+  /api/devices/{deviceId}/shadow/desired:
+    put:
+      summary: Merge desired shadow state
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+      responses: {'200': {description: Updated shadow}}
+  /api/devices/{deviceId}/commands:
+    post:
+      summary: Send a command
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommandInput'}}}}
+      responses: {'202': {description: Pending command}}
+  /api/devices/{deviceId}/commands/{commandId}:
+    get:
+      summary: Get command status
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+        - {$ref: '#/components/parameters/CommandId'}
+      responses: {'200': {description: Command status}}
+  /api/rules:
+    get:
+      summary: List product rules
+      parameters: [{ $ref: '#/components/parameters/ProductKeyRequired' }]
+      responses: {'200': {description: Rules}}
+    post:
+      summary: Create a rule
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RuleInput'}}}}
+      responses: {'201': {description: Rule created}}
+  /api/alarms:
+    get:
+      summary: List alarms
+      parameters:
+        - {$ref: '#/components/parameters/ProductKey'}
+        - {$ref: '#/components/parameters/DeviceIdQuery'}
+        - {name: status, in: query, schema: {type: string, enum: [active, resolved]}}
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+      responses: {'200': {description: Alarm page}}
+  /api/alarms/{alarmId}/resolve:
+    put:
+      summary: Resolve an alarm
+      parameters: [{name: alarmId, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [note], properties: {note: {type: string}}}}}}
+      responses: {'204': {description: Alarm resolved}}
+  /api/firmwares:
+    get:
+      summary: List firmware metadata
+      parameters: [{ $ref: '#/components/parameters/ProductKey' }]
+      responses: {'200': {description: Firmware list}}
+    post:
+      summary: Create firmware metadata
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FirmwareInput'}}}}
+      responses: {'201': {description: Firmware created}}
+  /api/ota/tasks:
+    get:
+      summary: List OTA tasks
+      parameters: [{ $ref: '#/components/parameters/ProductKey' }]
+      responses: {'200': {description: OTA task list}}
+    post:
+      summary: Create an OTA task
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OTATaskInput'}}}}
+      responses: {'201': {description: OTA task created}}
+  /api/ota/tasks/{taskId}:
+    get:
+      summary: Get OTA task progress
+      parameters: [{name: taskId, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: OTA task}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    DeviceId: {name: deviceId, in: path, required: true, schema: {type: string}}
+    CommandId: {name: commandId, in: path, required: true, schema: {type: string, format: uuid}}
+    ProductKey: {name: product_key, in: query, schema: {type: string}}
+    ProductKeyRequired: {name: product_key, in: query, required: true, schema: {type: string}}
+    DeviceIdQuery: {name: device_id, in: query, schema: {type: string}}
+    Status: {name: status, in: query, schema: {type: string, enum: [inactive, online, offline]}}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+    PageSize: {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+  schemas:
+    Property:
+      type: object
+      required: [name, data_type]
+      properties:
+        name: {type: string}
+        data_type: {type: string, enum: [int, float, bool, string]}
+        unit: {type: string}
+        min_value: {type: number}
+        max_value: {type: number}
+    ProductInput:
+      type: object
+      required: [name, device_type]
+      properties:
+        name: {type: string}
+        product_key: {type: string}
+        description: {type: string}
+        device_type: {type: string, enum: [sensor, actuator, composite]}
+        properties: {type: array, items: {$ref: '#/components/schemas/Property'}}
+    Product:
+      allOf:
+        - {$ref: '#/components/schemas/ProductInput'}
+        - type: object
+          properties:
+            id: {type: string, format: uuid}
+            online_device_count: {type: integer}
+            created_at: {type: string, format: date-time}
+    DeviceInput:
+      type: object
+      required: [product_key, name]
+      properties:
+        device_id: {type: string}
+        product_key: {type: string}
+        name: {type: string}
+        description: {type: string}
+    Device:
+      allOf:
+        - {$ref: '#/components/schemas/DeviceInput'}
+        - type: object
+          properties:
+            id: {type: string, format: uuid}
+            status: {type: string, enum: [inactive, online, offline, deleted]}
+            last_online: {type: string, format: date-time, nullable: true}
+            created_at: {type: string, format: date-time}
+    CommandInput:
+      type: object
+      required: [method]
+      properties:
+        method: {type: string}
+        params: {type: object, additionalProperties: true}
+    RuleInput:
+      type: object
+      required: [product_key, name, property_name, operator, action_type]
+      properties:
+        product_key: {type: string}
+        name: {type: string}
+        property_name: {type: string}
+        operator: {type: string, enum: ['>', '<', '>=', '<=', '==', '!=']}
+        threshold: {type: number}
+        duration_seconds: {type: integer, minimum: 0}
+        action_type: {type: string, enum: [alarm, command]}
+        action_params: {type: object, additionalProperties: true}
+        enabled: {type: boolean, default: true}
+    FirmwareInput:
+      type: object
+      required: [product_key, version, md5, file_url]
+      properties:
+        product_key: {type: string}
+        version: {type: string, example: 1.2.3}
+        md5: {type: string, minLength: 32, maxLength: 32}
+        file_url: {type: string, format: uri}
+        changelog: {type: string}
+    OTATaskInput:
+      type: object
+      required: [product_key, firmware_id]
+      properties:
+        product_key: {type: string}
+        firmware_id: {type: string, format: uuid}
+        target: {type: string, enum: [all, devices]}
+        target_device_ids: {type: array, items: {type: string}}

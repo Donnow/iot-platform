@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: IoT Perform Platform API
+  version: 0.1.0
+  description: HTTP API for products, devices, telemetry, rules, alarms, shadows, commands and OTA.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Health check
+      responses: {'200': {description: Service is ready for HTTP requests}}
+  /openapi.yaml:
+    get:
+      security: []
+      summary: OpenAPI specification
+      responses: {'200': {description: YAML specification}}
+  /api/products:
+    get:
+      summary: List products
+      responses: {'200': {description: Product page}}
+    post:
+      summary: Create a product
+      responses: {'201': {description: Product created}}
+  /api/devices:
+    get:
+      summary: List devices
+      responses: {'200': {description: Device page}}
+    post:
+      summary: Register a device
+      responses: {'201': {description: Device created}}
+  /api/devices/{deviceId}:
+    parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}]
+    get: {summary: Get a device, responses: {'200': {description: Device}}}
+    delete: {summary: Soft-delete a device, responses: {'204': {description: Device deleted}}}
+  /api/devices/{deviceId}/telemetry:
+    get: {summary: Query device telemetry, responses: {'200': {description: Telemetry samples}}}
+  /api/devices/{deviceId}/snapshot:
+    get: {summary: Get latest telemetry, responses: {'200': {description: Latest telemetry by metric}}}
+  /api/devices/{deviceId}/shadow:
+    get: {summary: Get device shadow, responses: {'200': {description: Device shadow}}}
+  /api/devices/{deviceId}/shadow/desired:
+    put: {summary: Merge desired shadow, responses: {'200': {description: Updated shadow}}}
+  /api/devices/{deviceId}/commands:
+    post: {summary: Send a command, responses: {'202': {description: Pending command}}}
+  /api/devices/{deviceId}/commands/{commandId}:
+    get: {summary: Get command status, responses: {'200': {description: Command status}}}
+  /api/rules:
+    get: {summary: List rules, responses: {'200': {description: Rules}}}
+    post: {summary: Create a rule, responses: {'201': {description: Rule created}}}
+  /api/alarms:
+    get: {summary: List alarms, responses: {'200': {description: Alarm page}}}
+  /api/alarms/{alarmId}/resolve:
+    put: {summary: Resolve an alarm, responses: {'204': {description: Alarm resolved}}}
+  /api/firmwares:
+    get: {summary: List firmware metadata, responses: {'200': {description: Firmware list}}}
+    post: {summary: Create firmware metadata, responses: {'201': {description: Firmware created}}}
+  /api/ota/tasks:
+    get: {summary: List OTA tasks, responses: {'200': {description: OTA task list}}}
+    post: {summary: Create an OTA task, responses: {'201': {description: OTA task created}}}
+  /api/ota/tasks/{taskId}:
+    get: {summary: Get OTA task progress, responses: {'200': {description: OTA task}}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}

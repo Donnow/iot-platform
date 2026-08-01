@@ -37,6 +37,18 @@ func TestHealthAndProductRoutes(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.Len() == 0 {
 		t.Fatalf("list products status=%d body=%s", response.Code, response.Body.String())
 	}
+	request = httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "openapi: 3.0.3") {
+		t.Fatalf("openapi status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/docs", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "SwaggerUIBundle") {
+		t.Fatalf("swagger status=%d body=%s", response.Code, response.Body.String())
+	}
 }
 
 func TestProductAndTelemetryValidation(t *testing.T) {
