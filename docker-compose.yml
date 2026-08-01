@@ -21,9 +21,9 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       tdengine:
-        condition: service_started
+        condition: service_healthy
 
   emqx:
     image: emqx/emqx:5.8.8
@@ -59,11 +59,21 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   tdengine:
     image: tdengine/tdengine:3.3.6.0
     volumes:
       - tdengine-data:/var/lib/taos
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:6041/rest/sql -d 'select 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   postgres-data:

@@ -15,6 +15,8 @@ import (
 	"iot-perform/internal/platform/memory"
 	"iot-perform/internal/platform/mqtt"
 	"iot-perform/internal/platform/observability"
+	"iot-perform/internal/platform/repository"
+	"iot-perform/internal/platform/storage"
 )
 
 func main() {
@@ -34,19 +36,23 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	store := memory.New()
+	repos, closeStore, err := openRepositories(ctx, cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeStore() }()
 	metrics := observability.NewMetrics()
 	mqttService, err := mqtt.NewServiceWithMetrics(mqtt.Config{
 		BrokerURL: cfg.MQTTBrokerURL,
 		ClientID:  cfg.MQTTClientID,
 		Username:  cfg.MQTTUsername,
 		Password:  cfg.MQTTPassword,
-	}, store.Repositories(), logger, metrics)
+	}, repos, logger, metrics)
 	if err != nil {
 		return err
 	}
 	server := httpapi.NewServerWithOptions(
-		store.Repositories(),
+		repos,
 		mqttService,
 		httpapi.JWTAuthorizer{Secret: []byte(cfg.JWTSecret)},
 		metrics,
@@ -89,6 +95,36 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	defer cancel()
 	_ = mqttService.Stop(shutdownCtx)
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+func openRepositories(ctx context.Context, cfg config.Config, logger *slog.Logger) (repository.Repositories, func() error, error) {
+	if cfg.StorageMode == "memory" {
+		store := memory.New()
+		return store.Repositories(), func() error { return nil }, nil
+	}
+	backoff := time.Second
+	for {
+		store, err := storage.New(ctx, storage.Config{
+			DatabaseURL: cfg.DatabaseURL, RedisAddr: cfg.RedisAddr, RedisPassword: cfg.RedisPassword,
+			RedisDB: cfg.RedisDB, TDengineURL: cfg.TDengineURL, TDengineUser: cfg.TDengineUser,
+			TDenginePassword: cfg.TDenginePassword,
+		})
+		if err == nil {
+			return store.Repositories(), store.Close, nil
+		}
+		if ctx.Err() != nil {
+			return repository.Repositories{}, nil, ctx.Err()
+		}
+		logger.Warn("persistent storage is not ready; retrying", "error", err, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return repository.Repositories{}, nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 15*time.Second {
+			backoff *= 2
+		}
+	}
 }
 
 func runMQTT(ctx context.Context, service *mqtt.Service, logger *slog.Logger) {
