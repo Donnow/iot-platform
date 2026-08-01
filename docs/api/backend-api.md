@@ -85,6 +85,7 @@ devices/{product_key}/{device_id}/command/reply
 devices/{product_key}/{device_id}/shadow/desired
 devices/{product_key}/{device_id}/shadow/reported
 devices/{product_key}/{device_id}/ota
+devices/{product_key}/{device_id}/status
 ```
 
 遥测 payload 为 `{"ts":1722000000000,"values":{"temperature":21.5}}`。
@@ -112,6 +113,8 @@ OTA 进度事件沿用设备 `event` topic，格式为
 `POST /internal/emqx/auth`，请求至少包含 `username`、`password`、`clientid`；
 生命周期回调为 `POST /internal/emqx/webhook`，事件使用
 `client.connected` 或 `client.disconnected`，并包含 `clientid`。
+平台在生命周期变化时向 `status` topic 发布 retained 状态消息，管理台可以通过
+MQTT.js WebSocket 订阅该 topic 获取实时在线状态。
 
 ## 当前实现边界
 

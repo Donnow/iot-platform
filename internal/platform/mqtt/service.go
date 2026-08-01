@@ -140,7 +140,11 @@ func NewServiceWithClientAndMetrics(client *Client, repos repository.Repositorie
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
+	var publisher messaging.Publisher
+	if client != nil {
+		publisher = client
+	}
+	return &Service{repos: repos, client: client, publisher: publisher, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
 }
 
 func (s *Service) Start(ctx context.Context) error {
@@ -329,12 +333,22 @@ func (s *Service) SetLifecycle(ctx context.Context, deviceID string, online bool
 	if err := s.repos.Devices.SetDeviceStatus(ctx, deviceID, status, onlineAt); err != nil {
 		return err
 	}
-	if !online || s.publisher == nil {
+	if s.publisher == nil {
 		return nil
 	}
 	device, err := s.repos.Devices.GetDevice(ctx, deviceID)
 	if err != nil {
 		return err
+	}
+	statusPayload, err := json.Marshal(map[string]any{"device_id": deviceID, "status": status, "ts": at.UnixMilli()})
+	if err != nil {
+		return err
+	}
+	if err := s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, deviceID, "status"), messaging.QoSAtLeastOnce, true, statusPayload); err != nil {
+		return err
+	}
+	if !online {
+		return nil
 	}
 	if s.repos.Shadows != nil {
 		shadow, err := s.repos.Shadows.GetShadow(ctx, deviceID)

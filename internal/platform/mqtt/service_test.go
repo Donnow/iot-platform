@@ -122,14 +122,14 @@ func TestSetLifecyclePublishesShadowAndPendingOTA(t *testing.T) {
 	if err := service.SetLifecycle(ctx, "d1", true, time.Unix(100, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if len(publisher.messages) != 2 {
+	if len(publisher.messages) != 3 {
 		t.Fatalf("published=%#v", publisher.messages)
 	}
-	if publisher.messages[0].topic != "devices/pk/d1/shadow/desired" || publisher.messages[1].topic != "devices/pk/d1/ota" {
+	if publisher.messages[0].topic != "devices/pk/d1/status" || publisher.messages[1].topic != "devices/pk/d1/shadow/desired" || publisher.messages[2].topic != "devices/pk/d1/ota" {
 		t.Fatalf("topics=%#v", publisher.messages)
 	}
 	var ota map[string]any
-	if err := json.Unmarshal(publisher.messages[1].payload, &ota); err != nil || ota["version"] != "1.0.0" {
+	if err := json.Unmarshal(publisher.messages[2].payload, &ota); err != nil || ota["version"] != "1.0.0" {
 		t.Fatalf("ota payload=%#v err=%v", ota, err)
 	}
 }

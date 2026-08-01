@@ -32,6 +32,7 @@ services:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: public
     ports:
       - "1883:1883"
+      - "8083:8083"
       - "18083:18083"
     healthcheck:
       test: ["CMD", "emqx", "ctl", "status"]

@@ -17,7 +17,7 @@ docker compose up --build
 ```
 
 管理台入口为 `http://localhost:3000`，后端入口为 `http://localhost:8080`，EMQX MQTT 端口为 `1883`，Dashboard
-端口为 `18083`。Compose 使用持久化 volume 保存 PostgreSQL、Redis 和 TDengine
+端口为 `18083`，WebSocket MQTT 端口为 `8083`。Compose 使用持久化 volume 保存 PostgreSQL、Redis 和 TDengine
 数据；Go 服务默认使用 PostgreSQL、Redis 和 TDengine 持久化仓储。
 
 API 文档可从 `http://localhost:8080/docs` 打开，机器可读契约在
@@ -48,6 +48,12 @@ curl http://localhost:8080/metrics
 平台启动前会等待 PostgreSQL、Redis 和 TDengine 完成连接及 schema 初始化；Compose
 通过 healthcheck 控制启动顺序。Redis 保存在线状态 TTL 和影子缓存，PostgreSQL 保存
 产品、设备、规则、告警、指令和 OTA 元数据，TDengine 保存遥测 JSON payload。
+
+管理台如需 MQTT.js 实时状态，将前端构建变量设置为
+`VITE_MQTT_WS_URL=ws://localhost:8083/mqtt`，并提供具备状态 topic 订阅权限的
+`VITE_MQTT_USERNAME` 与 `VITE_MQTT_PASSWORD`。未配置时管理台继续使用 HTTP 刷新；
+平台在设备生命周期变化时向 `devices/{product_key}/{device_id}/status` 发布 retained
+状态消息。
 
 ## EMQX 回调
 
