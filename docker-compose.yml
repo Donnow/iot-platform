@@ -88,7 +88,7 @@ services:
     volumes:
       - tdengine-data:/var/lib/taos
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:6041/rest/sql -d 'select 1' >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS -u root:taosdata http://localhost:6041/rest/sql -d 'select 1' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 20
