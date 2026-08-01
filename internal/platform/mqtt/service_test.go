@@ -88,6 +88,61 @@ func TestAuthenticateReturnsDeviceScopedACL(t *testing.T) {
 	}
 }
 
+func TestPlatformServiceAuthenticationAndACL(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D", DeviceSecret: "secret"})
+	service, err := NewService(Config{
+		BrokerURL: "tcp://broker:1883", ClientID: "iot-platform", Username: "iot-platform", Password: "platform-secret",
+	}, store.Repositories(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Authenticate(ctx, "iot-platform", "platform-secret")
+	if err != nil || !result.Allow {
+		t.Fatalf("platform auth=%#v err=%v", result, err)
+	}
+	result, err = service.Authenticate(ctx, "iot-platform", "bad")
+	if err != nil || result.Allow {
+		t.Fatalf("bad platform auth=%#v err=%v", result, err)
+	}
+	allowed := []struct {
+		topic  string
+		action string
+	}{
+		{telemetrySubscription, "subscribe"},
+		{"devices/+/+/telemetry", "subscribe"},
+		{commandReplySubscription, "subscribe"},
+		{"devices/pk/d1/command", "publish"},
+		{"devices/pk/d1/shadow/desired", "publish"},
+		{"devices/pk/d1/status", "publish"},
+	}
+	for _, test := range allowed {
+		ok, err := service.Authorize(ctx, "iot-platform", test.topic, test.action)
+		if err != nil || !ok {
+			t.Fatalf("platform ACL topic=%q action=%q ok=%v err=%v", test.topic, test.action, ok, err)
+		}
+	}
+	for _, test := range []struct {
+		topic  string
+		action string
+	}{
+		{"devices/pk/d1/telemetry", "subscribe"},
+		{"devices/pk/d1/telemetry", "publish"},
+		{"devices/pk/d1/event", "publish"},
+	} {
+		ok, err := service.Authorize(ctx, "iot-platform", test.topic, test.action)
+		if err != nil || ok {
+			t.Fatalf("unexpected platform ACL topic=%q action=%q ok=%v err=%v", test.topic, test.action, ok, err)
+		}
+	}
+	ok, err := service.Authorize(ctx, "d1", "devices/pk/d1/telemetry", "publish")
+	if err != nil || !ok {
+		t.Fatalf("device ACL ok=%v err=%v", ok, err)
+	}
+}
+
 func TestSetLifecycle(t *testing.T) {
 	store := memory.New()
 	ctx := context.Background()
@@ -152,6 +207,52 @@ func TestProcessOTAProgress(t *testing.T) {
 	updated, err := store.GetOTATask(ctx, task.ID)
 	if err != nil || updated.Summary[domain.OTAStageSuccess] != 1 {
 		t.Fatalf("task=%#v err=%v", updated, err)
+	}
+}
+
+func TestProcessWillMessageUpdatesLifecycle(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	if err := store.SetDeviceStatus(ctx, "d1", domain.DeviceStatusOnline, nil); err != nil {
+		t.Fatal(err)
+	}
+	service := NewServiceWithClient(nil, store.Repositories(), nil)
+	now := time.Now().UTC()
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/event", []byte(fmt.Sprintf(`{"status":"offline","ts":%d}`, now.UnixMilli()))); err != nil {
+		t.Fatal(err)
+	}
+	device, err := store.GetDevice(ctx, "d1")
+	if err != nil || device.Status != domain.DeviceStatusOffline {
+		t.Fatalf("device=%#v err=%v", device, err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/event", []byte(`{"status":"online"}`)); err != nil {
+		t.Fatal(err)
+	}
+	device, err = store.GetDevice(ctx, "d1")
+	if err != nil || device.Status != domain.DeviceStatusOnline {
+		t.Fatalf("device after online=%#v err=%v", device, err)
+	}
+}
+
+func TestProcessStaleWillIsIgnored(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	service := NewServiceWithClient(nil, store.Repositories(), nil)
+	now := time.Now().UTC()
+	if err := service.SetLifecycle(ctx, "d1", true, now); err != nil {
+		t.Fatal(err)
+	}
+	oldWill := now.Add(-30 * time.Second)
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/event", []byte(fmt.Sprintf(`{"status":"offline","ts":%d}`, oldWill.UnixMilli()))); err != nil {
+		t.Fatal(err)
+	}
+	device, err := store.GetDevice(ctx, "d1")
+	if err != nil || device.Status != domain.DeviceStatusOnline {
+		t.Fatalf("stale will flipped device=%#v err=%v", device, err)
 	}
 }
 

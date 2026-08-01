@@ -20,6 +20,11 @@ import (
 	"iot-perform/internal/platform/repository"
 )
 
+// lifecycleGracePeriod gives a freshly connected device time to complete its
+// MQTT subscriptions before the platform re-publishes shadow desired and
+// pending OTA notifications during the online lifecycle.
+const lifecycleGracePeriod = time.Second
+
 type Authorizer interface {
 	Authorize(*http.Request) error
 }
@@ -56,6 +61,7 @@ type InternalAuthResult struct {
 
 type InternalHooks struct {
 	Authenticate func(context.Context, string, string) (InternalAuthResult, error)
+	Authorize    func(context.Context, string, string, string) (bool, error)
 	Lifecycle    func(context.Context, string, bool, time.Time) error
 }
 
@@ -168,6 +174,19 @@ func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
 			if len(result.ACL) > 0 {
 				response["acl"] = result.ACL
 			}
+			// The auth callback is invoked for every connect attempt, so it
+			// doubles as the online lifecycle signal. The platform service
+			// account returns no ACL and is excluded. The lifecycle work is
+			// deferred briefly so the device has time to complete its MQTT
+			// subscriptions before shadow desired and pending OTA
+			// notifications are re-published to it.
+			if s.hooks.Lifecycle != nil && len(result.ACL) > 0 {
+				deviceID := deviceID
+				go func() {
+					time.Sleep(lifecycleGracePeriod)
+					_ = s.hooks.Lifecycle(context.Background(), deviceID, true, time.Now().UTC())
+				}()
+			}
 		}
 		writeJSON(writer, http.StatusOK, response)
 	case "/internal/emqx/webhook":
@@ -232,8 +251,18 @@ func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
 		if deviceID == "" {
 			deviceID = strings.TrimSpace(input.ClientID)
 		}
-		device, err := s.repos.Devices.GetDevice(request.Context(), deviceID)
-		allowed := err == nil && device.Status != domain.DeviceStatusDeleted && aclAllows(device.ProductKey, device.DeviceID, input.Topic, input.Action)
+		var allowed bool
+		var err error
+		if s.hooks.Authorize != nil {
+			allowed, err = s.hooks.Authorize(request.Context(), deviceID, input.Topic, input.Action)
+		} else {
+			device, lookupErr := s.repos.Devices.GetDevice(request.Context(), deviceID)
+			allowed = lookupErr == nil && device.Status != domain.DeviceStatusDeleted && aclAllows(device.ProductKey, device.DeviceID, input.Topic, input.Action)
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err)
+			return
+		}
 		result := "deny"
 		if allowed {
 			result = "allow"

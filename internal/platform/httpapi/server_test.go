@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,6 +113,55 @@ func TestDeviceCommandAndShadowRoutes(t *testing.T) {
 	}
 }
 
+func TestEMQXAuthTriggersDeferredLifecycle(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	if _, err := store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"}); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var called bool
+	server := NewServerWithOptions(store.Repositories(), nil, nil, nil, InternalHooks{
+		Authenticate: func(_ context.Context, deviceID, _ string) (InternalAuthResult, error) {
+			return InternalAuthResult{Allow: deviceID == "d1", ACL: []InternalACLRule{{Permission: "allow", Topic: "devices/pk/d1/telemetry", Action: "publish"}}}, nil
+		},
+		Lifecycle: func(_ context.Context, deviceID string, online bool, _ time.Time) error {
+			if deviceID == "d1" && online {
+				mu.Lock()
+				called = true
+				mu.Unlock()
+			}
+			return nil
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/internal/emqx/auth", jsonBody(t, map[string]any{"clientid": "d1", "password": "x"}))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("auth status=%d", response.Code)
+	}
+	mu.Lock()
+	immediate := called
+	mu.Unlock()
+	if immediate {
+		t.Fatal("lifecycle ran synchronously; expected deferred")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := called
+		mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("deferred lifecycle was never called")
+}
+
 func TestBearerAuthorizer(t *testing.T) {
 	server := NewServer(memory.New().Repositories(), nil, BearerTokenAuthorizer{Token: "token"})
 	request := httptest.NewRequest(http.MethodGet, "/api/products", nil)
@@ -138,6 +188,7 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	metrics := observability.NewMetrics()
+	var lifecycleMu sync.Mutex
 	var lifecycle struct {
 		deviceID string
 		online   bool
@@ -147,8 +198,13 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 		Authenticate: func(_ context.Context, deviceID, secret string) (InternalAuthResult, error) {
 			return InternalAuthResult{Allow: deviceID == "d1" && secret == "secret", ACL: []InternalACLRule{{Permission: "allow", Topic: "devices/pk/d1/telemetry", Action: "publish"}}}, nil
 		},
+		Authorize: func(_ context.Context, deviceID, topic, action string) (bool, error) {
+			return deviceID == "d1" && topic == "devices/pk/d1/telemetry" && action == "publish", nil
+		},
 		Lifecycle: func(_ context.Context, deviceID string, online bool, at time.Time) error {
+			lifecycleMu.Lock()
 			lifecycle.deviceID, lifecycle.online, lifecycle.at = deviceID, online, at
+			lifecycleMu.Unlock()
 			return nil
 		},
 	})
@@ -163,7 +219,10 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 	request = httptest.NewRequest(http.MethodPost, "/internal/emqx/webhook", jsonBody(t, map[string]any{"event": "client.connected", "clientid": "d1", "timestamp": int64(1722000000000)}))
 	response = httptest.NewRecorder()
 	server.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || lifecycle.deviceID != "d1" || !lifecycle.online || lifecycle.at.UnixMilli() != 1722000000000 {
+	lifecycleMu.Lock()
+	lifecycleDeviceID, lifecycleOnline, lifecycleAt := lifecycle.deviceID, lifecycle.online, lifecycle.at
+	lifecycleMu.Unlock()
+	if response.Code != http.StatusOK || lifecycleDeviceID != "d1" || !lifecycleOnline || lifecycleAt.UnixMilli() != 1722000000000 {
 		t.Fatalf("lifecycle response=%d state=%#v body=%s", response.Code, lifecycle, response.Body.String())
 	}
 

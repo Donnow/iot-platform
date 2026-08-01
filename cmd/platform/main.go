@@ -65,6 +65,7 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				}
 				return httpapi.InternalAuthResult{Allow: result.Allow, ACL: acl}, err
 			},
+			Authorize: mqttService.Authorize,
 			Lifecycle: mqttService.SetLifecycle,
 		},
 	)

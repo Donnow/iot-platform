@@ -26,7 +26,7 @@ services:
         condition: service_healthy
 
   emqx:
-    image: emqx/emqx:5.8.8
+    image: emqx/emqx:5.7.2
     environment:
       EMQX_NODE__COOKIE: iot-perform-cookie
       EMQX_DASHBOARD__DEFAULT_PASSWORD: public
@@ -34,15 +34,11 @@ services:
       EMQX_AUTHENTICATION__1__BACKEND: http
       EMQX_AUTHENTICATION__1__METHOD: post
       EMQX_AUTHENTICATION__1__URL: http://platform:8080/internal/emqx/auth
-      EMQX_AUTHENTICATION__1__REQUEST_HEADERS__CONTENT_TYPE: application/json
-      EMQX_AUTHENTICATION__1__BODY__USERNAME: "$${username}"
-      EMQX_AUTHENTICATION__1__BODY__PASSWORD: "$${password}"
-      EMQX_AUTHENTICATION__1__BODY__CLIENTID: "$${clientid}"
+      EMQX_AUTHENTICATION__1__BODY: '{"username":"$${username}","password":"$${password}","clientid":"$${clientid}"}'
       EMQX_AUTHORIZATION__NO_MATCH: deny
       EMQX_AUTHORIZATION__SOURCES__1__TYPE: http
       EMQX_AUTHORIZATION__SOURCES__1__METHOD: post
       EMQX_AUTHORIZATION__SOURCES__1__URL: http://platform:8080/internal/emqx/acl
-      EMQX_AUTHORIZATION__SOURCES__1__REQUEST_HEADERS__CONTENT_TYPE: application/json
       EMQX_AUTHORIZATION__SOURCES__1__BODY__USERNAME: "$${username}"
       EMQX_AUTHORIZATION__SOURCES__1__BODY__CLIENTID: "$${clientid}"
       EMQX_AUTHORIZATION__SOURCES__1__BODY__TOPIC: "$${topic}"
@@ -51,11 +47,32 @@ services:
       - "1883:1883"
       - "8083:8083"
       - "18083:18083"
+    volumes:
+      - emqx-data:/opt/emqx/data
     healthcheck:
       test: ["CMD", "emqx", "ctl", "status"]
       interval: 5s
       timeout: 5s
       retries: 12
+
+  # EMQX Open Source does not ship the built-in Webhooks feature (Enterprise
+  # only), so device lifecycle events are forwarded via rule engine + HTTP
+  # bridge. This one-shot service bootstraps the bridge and the two rules
+  # idempotently. EMQX is pinned to 5.7.x: the 5.8 series rule engine was
+  # observed not receiving client events on this stack.
+  emqx-init:
+    image: curlimages/curl:latest
+    depends_on:
+      emqx:
+        condition: service_healthy
+    environment:
+      EMQX_API: http://emqx:18083/api/v5
+      IOT_WEBHOOK_URL: http://platform:8080/internal/emqx/webhook
+    volumes:
+      - ./scripts/emqx-init.sh:/scripts/emqx-init.sh:ro
+    command: ["sh", "-c", "sh /scripts/emqx-init.sh"]
+    restart: "no"
+
 
   postgres:
     image: postgres:16-alpine
@@ -97,3 +114,4 @@ volumes:
   postgres-data:
   redis-data:
   tdengine-data:
+  emqx-data:

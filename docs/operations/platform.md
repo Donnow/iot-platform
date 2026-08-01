@@ -58,11 +58,28 @@ curl http://localhost:8080/metrics
 ## EMQX 回调
 
 Compose 已将 EMQX HTTP authentication 指向 `/internal/emqx/auth`，并将 HTTP
-authorization 指向 `/internal/emqx/acl`；生命周期 webhook 应指向
-`/internal/emqx/webhook`。这些接口是内部入口，不使用平台 JWT；部署时
+authorization 指向 `/internal/emqx/acl`；生命周期 webhook 接口 `/internal/emqx/webhook`
+保留用于支持该能力的部署。这些接口是内部入口，不使用平台 JWT；部署时
 应通过 Docker 网络、反向代理或网络策略限制其来源，仅允许 EMQX 访问。
 
-平台收到设备上线事件后会更新设备状态；如果影子存在未同步的 desired，会立即
+设备在线状态使用两条已验证的链路维护：
+
+- **上线**：EMQX 在每次连接时调用 `/internal/emqx/auth`，平台认证通过后即标记
+  设备 online，并延迟 1 秒执行上线逻辑（补发影子 desired 和未完成 OTA 通知），
+  给设备留出完成 MQTT 订阅的时间。
+- **下线**：设备连接非正常断开时，EMQX 发布遗嘱消息到设备 `event` topic，
+  平台消费后标记 offline；遗嘱携带时间戳，平台据此忽略来自旧连接的迟到遗嘱。
+
+`emqx-init` 服务会在 EMQX 启动后幂等创建 HTTP 桥接和两条 client 事件规则，
+用于支持 EMQX 5.8 企业版或更高版本可用的 Webhooks 能力；Open Source 版
+规则引擎不接收 client 事件的环境下，上述 auth/will 链路依然生效。
+
+平台自身也通过 EMQX 的 HTTP authentication 和 authorization。`IOT_MQTT_USERNAME`
+与 `IOT_MQTT_PASSWORD` 用作平台内部 MQTT 服务账号；该账号只允许订阅设备上行消息，
+以及发布 command、shadow desired、OTA 和 retained status。部署时必须覆盖示例密码，
+且该用户名不得用作普通设备 ID。
+
+平台收到设备上线信号后会更新设备状态；如果影子存在未同步的 desired，会立即
 向设备 topic 补发 desired。设备上线时还会补发该设备所有未完成的 OTA 任务；
 任务创建时只通知当前在线的目标设备。
 

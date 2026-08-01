@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,8 +40,11 @@ func TestConnectionOptionsAndSubscriptions(t *testing.T) {
 	if options.BrokerURL != "tcp://localhost:1883" || options.ClientID != "device-1" || options.Username != "device-1" || options.Password != "secret-1" {
 		t.Fatalf("connection options = %#v", options)
 	}
-	if options.WillTopic != "devices/pk/device-1/event" || string(options.WillPayload) != `{"status":"offline"}` || options.WillQoS != QoSAtLeastOnce {
+	if options.WillTopic != "devices/pk/device-1/event" || options.WillQoS != QoSAtLeastOnce {
 		t.Fatalf("will options = %#v", options)
+	}
+	if !strings.Contains(string(options.WillPayload), `"status":"offline"`) {
+		t.Fatalf("will payload = %s", options.WillPayload)
 	}
 	if err := device.ConnectOnce(context.Background()); err != nil {
 		t.Fatal(err)

@@ -218,7 +218,11 @@ func (s *Store) SetDeviceStatus(ctx context.Context, deviceID string, status dom
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE devices
-		SET status = $2, last_online = CASE WHEN $2 = 'online' AND $3::timestamptz IS NOT NULL THEN $3 ELSE last_online END
+		SET status = $2::varchar,
+			last_online = CASE
+				WHEN $2::varchar = 'online' THEN COALESCE($3::timestamptz, last_online)
+				ELSE last_online
+			END
 		WHERE device_id = $1 AND status <> 'deleted'`, deviceID, status, onlineAt)
 	if err != nil {
 		return mapDBError(err)

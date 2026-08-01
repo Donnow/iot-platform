@@ -111,10 +111,13 @@ OTA 进度事件沿用设备 `event` topic，格式为
 
 平台消费者使用 shared subscription 订阅上行消息。设备认证回调为
 `POST /internal/emqx/auth`，请求至少包含 `username`、`password`、`clientid`；
-生命周期回调为 `POST /internal/emqx/webhook`，事件使用
-`client.connected` 或 `client.disconnected`，并包含 `clientid`。
-平台在生命周期变化时向 `status` topic 发布 retained 状态消息，管理台可以通过
-MQTT.js WebSocket 订阅该 topic 获取实时在线状态。
+该回调同时作为上线信号——认证通过后平台延迟 1 秒执行上线逻辑（补发影子
+desired 和未完成 OTA 通知）。生命周期 webhook 为 `POST /internal/emqx/webhook`，
+事件使用 `client.connected` 或 `client.disconnected`，并包含 `clientid`。
+设备异常断开时，EMQX 发布遗嘱消息到设备 `event` topic（
+`{"status":"offline","ts":...}`），平台据此标记下线，并通过 `ts` 忽略
+旧连接的迟到遗嘱。平台在生命周期变化时向 `status` topic 发布 retained 状态
+消息，管理台可以通过 MQTT.js WebSocket 订阅该 topic 获取实时在线状态。
 
 ## 当前实现边界
 

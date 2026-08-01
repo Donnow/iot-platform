@@ -110,7 +110,7 @@
 以下测试标记为 `integration`，默认不在普通单元测试中运行：
 
 1. 注册四种产品和设备，启动模拟器，验证 EMQX 认证使用正确 device_id/device_secret。
-2. 验证设备上线 webhook 后平台在 2 秒内返回 online，模拟器异常退出后遗嘱和 webhook 使平台进入 offline。
+2. 验证设备上线后平台在 2 秒内返回 online（认证回调触发上线逻辑），模拟器异常退出后遗嘱消息使平台在 keepalive 检测周期内进入 offline。
 3. 平台下发 command，验证门禁/空调状态改变并在 1 秒内查到 command success。
 4. 设备离线期间设置 shadow desired，重新连接后验证 5 秒内收到 desired 并上报 reported。
 5. 平台发送 OTA，验证模拟器上报完整进度，最终任务统计为 success。

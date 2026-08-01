@@ -103,13 +103,14 @@ func (d *Device) DeviceType() DeviceType {
 }
 
 func (d *Device) ConnectionOptions() MQTTOptions {
+	willPayload := fmt.Sprintf(`{"status":"offline","ts":%d}`, d.clock.Now().UnixMilli())
 	return MQTTOptions{
 		BrokerURL:    d.brokerURL,
 		ClientID:     d.credential.DeviceID,
 		Username:     d.credential.DeviceID,
 		Password:     d.credential.DeviceSecret,
 		WillTopic:    Topic(d.productKey, d.credential.DeviceID, topicEvent),
-		WillPayload:  []byte(`{"status":"offline"}`),
+		WillPayload:  []byte(willPayload),
 		WillQoS:      QoSAtLeastOnce,
 		WillRetained: false,
 	}

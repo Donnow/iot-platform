@@ -95,12 +95,14 @@ func (c *Client) Close(context.Context) error {
 }
 
 type Service struct {
-	repos     repository.Repositories
-	client    *Client
-	publisher messaging.Publisher
-	logger    *slog.Logger
-	metrics   Metrics
-	rules     map[string]ruleState
+	repos           repository.Repositories
+	client          *Client
+	publisher       messaging.Publisher
+	logger          *slog.Logger
+	metrics         Metrics
+	rules           map[string]ruleState
+	serviceUsername string
+	servicePassword string
 
 	mu sync.Mutex
 }
@@ -129,7 +131,10 @@ func NewServiceWithMetrics(config Config, repos repository.Repositories, logger 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}, nil
+	return &Service{
+		repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState),
+		serviceUsername: config.Username, servicePassword: config.Password,
+	}, nil
 }
 
 func NewServiceWithClient(client *Client, repos repository.Repositories, logger *slog.Logger) *Service {
@@ -228,6 +233,32 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 			return err
 		}
 		if event.EventType != "ota_progress" || s.repos.OTA == nil {
+			// Device will message (e.g. {"status":"offline","ts":...}) published
+			// on the event topic when a connection drops without DISCONNECT.
+			var status struct {
+				Status string `json:"status"`
+				TS     int64  `json:"ts"`
+			}
+			if event.EventType == "" && json.Unmarshal(payload, &status) == nil {
+				switch status.Status {
+				case "offline":
+					if status.TS > 0 {
+						device, err := s.repos.Devices.GetDevice(ctx, deviceID)
+						if err == nil && device.LastOnline != nil && status.TS < device.LastOnline.Add(-5*time.Second).UnixMilli() {
+							// Stale will from a previous connection: the device
+							// has already re-authenticated since. The will
+							// timestamp is stamped just before connect, so it is
+							// a few milliseconds earlier than the auth time of
+							// the same connection; a 5s tolerance separates the
+							// same-connection will from a genuinely old one.
+							return nil
+						}
+					}
+					return s.SetLifecycle(ctx, deviceID, false, time.Now().UTC())
+				case "online":
+					return s.SetLifecycle(ctx, deviceID, true, time.Now().UTC())
+				}
+			}
 			return nil
 		}
 		version, _ := event.Data["version"].(string)
@@ -309,6 +340,9 @@ type AuthResult struct {
 }
 
 func (s *Service) Authenticate(ctx context.Context, deviceID, secret string) (AuthResult, error) {
+	if s.serviceUsername != "" && s.servicePassword != "" && deviceID == s.serviceUsername && secret == s.servicePassword {
+		return AuthResult{Allow: true}, nil
+	}
 	device, err := s.repos.Devices.AuthenticateDevice(ctx, deviceID, secret)
 	if err != nil {
 		return AuthResult{Allow: false}, nil
@@ -322,6 +356,59 @@ func (s *Service) Authenticate(ctx context.Context, deviceID, secret string) (Au
 		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), Action: "subscribe"},
 		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "ota"), Action: "subscribe"},
 	}}, nil
+}
+
+func (s *Service) Authorize(ctx context.Context, clientID, topic, action string) (bool, error) {
+	if s.serviceUsername != "" && clientID == s.serviceUsername {
+		return serviceACLAllows(topic, action), nil
+	}
+	device, err := s.repos.Devices.GetDevice(ctx, clientID)
+	if err != nil || device.Status == domain.DeviceStatusDeleted {
+		return false, nil
+	}
+	return deviceACLAllows(device.ProductKey, device.DeviceID, topic, action), nil
+}
+
+func deviceACLAllows(productKey, deviceID, topic, action string) bool {
+	if productKey == "" || deviceID == "" || topic == "" {
+		return false
+	}
+	allowed := map[string]struct{}{
+		"publish " + messaging.DeviceTopic(productKey, deviceID, "telemetry"):        {},
+		"publish " + messaging.DeviceTopic(productKey, deviceID, "event"):            {},
+		"publish " + messaging.DeviceTopic(productKey, deviceID, "command/reply"):    {},
+		"publish " + messaging.DeviceTopic(productKey, deviceID, "shadow/reported"):  {},
+		"subscribe " + messaging.DeviceTopic(productKey, deviceID, "command"):        {},
+		"subscribe " + messaging.DeviceTopic(productKey, deviceID, "shadow/desired"): {},
+		"subscribe " + messaging.DeviceTopic(productKey, deviceID, "ota"):            {},
+	}
+	_, ok := allowed[strings.ToLower(strings.TrimSpace(action))+" "+topic]
+	return ok
+}
+
+func serviceACLAllows(topic, action string) bool {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if action == "subscribe" {
+		switch topic {
+		case telemetrySubscription, eventSubscription, commandReplySubscription, shadowReportedSubscription:
+			return true
+		case "devices/+/+/telemetry", "devices/+/+/event", "devices/+/+/command/reply", "devices/+/+/shadow/reported":
+			return true
+		default:
+			return false
+		}
+	}
+	if action != "publish" {
+		return false
+	}
+	parts := strings.Split(topic, "/")
+	if len(parts) < 4 || parts[0] != "devices" || parts[1] == "" || parts[2] == "" {
+		return false
+	}
+	if len(parts) == 4 && (parts[3] == "command" || parts[3] == "ota" || parts[3] == "status") {
+		return true
+	}
+	return len(parts) == 5 && parts[3] == "shadow" && parts[4] == "desired"
 }
 
 func (s *Service) SetLifecycle(ctx context.Context, deviceID string, online bool, at time.Time) error {

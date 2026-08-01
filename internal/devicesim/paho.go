@@ -21,9 +21,19 @@ func NewPahoFactory() ClientFactory {
 		clientOptions.SetClientID(options.ClientID)
 		clientOptions.SetUsername(options.Username)
 		clientOptions.SetPassword(options.Password)
-		clientOptions.SetCleanSession(false)
+		// A clean session is used deliberately: the platform re-delivers
+		// shadow desired and pending OTA notifications on every connect
+		// (SetLifecycle), so there is no need to resume a stale server-side
+		// session. Resuming a session with unacked QoS1 deliveries wedges
+		// paho (it stops sending PUBACKs), which in turn blocks the device
+		// loop; a fresh session avoids that failure mode entirely.
+		clientOptions.SetCleanSession(true)
 		clientOptions.SetAutoReconnect(false)
 		clientOptions.SetWill(options.WillTopic, string(options.WillPayload), options.WillQoS, options.WillRetained)
+		// A short keepalive makes the broker detect dead connections (and
+		// publish the will) within the SRS acceptance window of roughly five
+		// seconds after a device drops without DISCONNECT.
+		clientOptions.SetKeepAlive(3 * time.Second)
 		clientOptions.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 			select {
 			case lost <- err:
