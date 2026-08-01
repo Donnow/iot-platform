@@ -44,8 +44,9 @@ func (a BearerTokenAuthorizer) Authorize(request *http.Request) error {
 }
 
 type InternalACLRule struct {
-	Topic  string `json:"topic"`
-	Action string `json:"action"`
+	Permission string `json:"permission"`
+	Topic      string `json:"topic"`
+	Action     string `json:"action"`
 }
 
 type InternalAuthResult struct {
@@ -216,9 +217,48 @@ func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
+	case "/internal/emqx/acl":
+		var input struct {
+			Username string `json:"username"`
+			ClientID string `json:"clientid"`
+			Topic    string `json:"topic"`
+			Action   string `json:"action"`
+		}
+		if err := readJSONLoose(request, &input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		deviceID := strings.TrimSpace(input.Username)
+		if deviceID == "" {
+			deviceID = strings.TrimSpace(input.ClientID)
+		}
+		device, err := s.repos.Devices.GetDevice(request.Context(), deviceID)
+		allowed := err == nil && device.Status != domain.DeviceStatusDeleted && aclAllows(device.ProductKey, device.DeviceID, input.Topic, input.Action)
+		result := "deny"
+		if allowed {
+			result = "allow"
+		}
+		writeJSON(writer, http.StatusOK, map[string]string{"result": result})
 	default:
 		writeError(writer, http.StatusNotFound, errors.New("route not found"))
 	}
+}
+
+func aclAllows(productKey, deviceID, topic, action string) bool {
+	if productKey == "" || deviceID == "" || topic == "" {
+		return false
+	}
+	allowed := map[string]struct{}{
+		"publish devices/" + productKey + "/" + deviceID + "/telemetry":        {},
+		"publish devices/" + productKey + "/" + deviceID + "/event":            {},
+		"publish devices/" + productKey + "/" + deviceID + "/command/reply":    {},
+		"publish devices/" + productKey + "/" + deviceID + "/shadow/reported":  {},
+		"subscribe devices/" + productKey + "/" + deviceID + "/command":        {},
+		"subscribe devices/" + productKey + "/" + deviceID + "/shadow/desired": {},
+		"subscribe devices/" + productKey + "/" + deviceID + "/ota":            {},
+	}
+	_, ok := allowed[strings.ToLower(strings.TrimSpace(action))+" "+topic]
+	return ok
 }
 
 type productRequest struct {

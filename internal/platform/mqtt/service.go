@@ -298,8 +298,9 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 }
 
 type ACLRule struct {
-	Topic  string `json:"topic"`
-	Action string `json:"action"`
+	Permission string `json:"permission"`
+	Topic      string `json:"topic"`
+	Action     string `json:"action"`
 }
 
 type AuthResult struct {
@@ -313,13 +314,13 @@ func (s *Service) Authenticate(ctx context.Context, deviceID, secret string) (Au
 		return AuthResult{Allow: false}, nil
 	}
 	return AuthResult{Allow: true, ACL: []ACLRule{
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "telemetry"), Action: "publish"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "event"), Action: "publish"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "command/reply"), Action: "publish"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/reported"), Action: "publish"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "command"), Action: "subscribe"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), Action: "subscribe"},
-		{Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "ota"), Action: "subscribe"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "telemetry"), Action: "publish"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "event"), Action: "publish"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "command/reply"), Action: "publish"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/reported"), Action: "publish"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "command"), Action: "subscribe"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), Action: "subscribe"},
+		{Permission: "allow", Topic: messaging.DeviceTopic(device.ProductKey, deviceID, "ota"), Action: "subscribe"},
 	}}, nil
 }
 

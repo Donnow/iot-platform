@@ -57,8 +57,9 @@ curl http://localhost:8080/metrics
 
 ## EMQX 回调
 
-EMQX 的 HTTP authentication 应指向 `/internal/emqx/auth`，生命周期 webhook
-应指向 `/internal/emqx/webhook`。这两个接口是内部入口，不使用平台 JWT；部署时
+Compose 已将 EMQX HTTP authentication 指向 `/internal/emqx/auth`，并将 HTTP
+authorization 指向 `/internal/emqx/acl`；生命周期 webhook 应指向
+`/internal/emqx/webhook`。这些接口是内部入口，不使用平台 JWT；部署时
 应通过 Docker 网络、反向代理或网络策略限制其来源，仅允许 EMQX 访问。
 
 平台收到设备上线事件后会更新设备状态；如果影子存在未同步的 desired，会立即

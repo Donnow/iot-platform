@@ -30,6 +30,23 @@ services:
     environment:
       EMQX_NODE__COOKIE: iot-perform-cookie
       EMQX_DASHBOARD__DEFAULT_PASSWORD: public
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: http
+      EMQX_AUTHENTICATION__1__METHOD: post
+      EMQX_AUTHENTICATION__1__URL: http://platform:8080/internal/emqx/auth
+      EMQX_AUTHENTICATION__1__REQUEST_HEADERS__CONTENT_TYPE: application/json
+      EMQX_AUTHENTICATION__1__BODY__USERNAME: "$${username}"
+      EMQX_AUTHENTICATION__1__BODY__PASSWORD: "$${password}"
+      EMQX_AUTHENTICATION__1__BODY__CLIENTID: "$${clientid}"
+      EMQX_AUTHORIZATION__NO_MATCH: deny
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: http
+      EMQX_AUTHORIZATION__SOURCES__1__METHOD: post
+      EMQX_AUTHORIZATION__SOURCES__1__URL: http://platform:8080/internal/emqx/acl
+      EMQX_AUTHORIZATION__SOURCES__1__REQUEST_HEADERS__CONTENT_TYPE: application/json
+      EMQX_AUTHORIZATION__SOURCES__1__BODY__USERNAME: "$${username}"
+      EMQX_AUTHORIZATION__SOURCES__1__BODY__CLIENTID: "$${clientid}"
+      EMQX_AUTHORIZATION__SOURCES__1__BODY__TOPIC: "$${topic}"
+      EMQX_AUTHORIZATION__SOURCES__1__BODY__ACTION: "$${action}"
     ports:
       - "1883:1883"
       - "8083:8083"

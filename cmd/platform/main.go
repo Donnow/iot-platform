@@ -61,7 +61,7 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				result, err := mqttService.Authenticate(ctx, deviceID, secret)
 				acl := make([]httpapi.InternalACLRule, 0, len(result.ACL))
 				for _, rule := range result.ACL {
-					acl = append(acl, httpapi.InternalACLRule{Topic: rule.Topic, Action: rule.Action})
+					acl = append(acl, httpapi.InternalACLRule{Permission: rule.Permission, Topic: rule.Topic, Action: rule.Action})
 				}
 				return httpapi.InternalAuthResult{Allow: result.Allow, ACL: acl}, err
 			},

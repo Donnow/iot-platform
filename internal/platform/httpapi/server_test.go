@@ -129,15 +129,23 @@ func TestBearerAuthorizer(t *testing.T) {
 }
 
 func TestEMQXInternalHooksAndMetrics(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	if _, err := store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"}); err != nil {
+		t.Fatal(err)
+	}
 	metrics := observability.NewMetrics()
 	var lifecycle struct {
 		deviceID string
 		online   bool
 		at       time.Time
 	}
-	server := NewServerWithOptions(memory.New().Repositories(), nil, nil, metrics, InternalHooks{
+	server := NewServerWithOptions(store.Repositories(), nil, nil, metrics, InternalHooks{
 		Authenticate: func(_ context.Context, deviceID, secret string) (InternalAuthResult, error) {
-			return InternalAuthResult{Allow: deviceID == "d1" && secret == "secret", ACL: []InternalACLRule{{Topic: "devices/pk/d1/telemetry", Action: "publish"}}}, nil
+			return InternalAuthResult{Allow: deviceID == "d1" && secret == "secret", ACL: []InternalACLRule{{Permission: "allow", Topic: "devices/pk/d1/telemetry", Action: "publish"}}}, nil
 		},
 		Lifecycle: func(_ context.Context, deviceID string, online bool, at time.Time) error {
 			lifecycle.deviceID, lifecycle.online, lifecycle.at = deviceID, online, at
@@ -148,7 +156,7 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/internal/emqx/auth", jsonBody(t, map[string]any{"clientid": "d1", "password": "secret"}))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"allow"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"result":"allow"`) || !strings.Contains(response.Body.String(), `"permission":"allow"`) {
 		t.Fatalf("auth response=%d body=%s", response.Code, response.Body.String())
 	}
 
@@ -164,6 +172,22 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "iot_platform_http_requests_total") {
 		t.Fatalf("metrics response=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/internal/emqx/acl", jsonBody(t, map[string]any{
+		"username": "d1", "action": "publish", "topic": "devices/pk/d1/telemetry",
+	}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"result":"allow"`) {
+		t.Fatalf("acl allow response=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/internal/emqx/acl", jsonBody(t, map[string]any{
+		"username": "d1", "action": "publish", "topic": "devices/pk/other/telemetry",
+	}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"result":"deny"`) {
+		t.Fatalf("acl deny response=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

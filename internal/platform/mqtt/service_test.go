@@ -78,7 +78,7 @@ func TestAuthenticateReturnsDeviceScopedACL(t *testing.T) {
 		t.Fatalf("auth=%#v err=%v", result, err)
 	}
 	for _, rule := range result.ACL {
-		if rule.Topic == "" || rule.Topic == "devices/+/+/telemetry" {
+		if rule.Permission != "allow" || rule.Topic == "" || rule.Topic == "devices/+/+/telemetry" {
 			t.Fatalf("unscoped ACL rule=%#v", rule)
 		}
 	}
