@@ -39,6 +39,47 @@ func TestHealthAndProductRoutes(t *testing.T) {
 	}
 }
 
+func TestProductAndTelemetryValidation(t *testing.T) {
+	store := memory.New()
+	server := NewServer(store.Repositories(), nil, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/products", jsonBody(t, map[string]any{
+		"name": "Temperature", "product_key": "temperature", "device_type": "sensor",
+		"properties": []map[string]any{{"name": "temperature", "data_type": "float", "min_value": 0, "max_value": 50}},
+	}))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create product status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/products", jsonBody(t, map[string]any{
+		"name": "Broken", "product_key": "broken", "properties": []map[string]any{{"name": "x", "data_type": "invalid"}},
+	}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid property status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/devices", jsonBody(t, map[string]any{"device_id": "d1", "product_key": "temperature", "name": "D"}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create device status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/rules", jsonBody(t, map[string]any{"product_key": "temperature", "name": "bad", "property_name": "temperature", "operator": "contains", "action_type": "alarm"}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid rule status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/devices/d1/telemetry?interval=10s", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid interval status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestDeviceCommandAndShadowRoutes(t *testing.T) {
 	store := memory.New()
 	ctx := context.Background()

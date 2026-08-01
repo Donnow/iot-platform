@@ -232,6 +232,14 @@ func (s *Server) handleProducts(writer http.ResponseWriter, request *http.Reques
 			writeError(writer, http.StatusBadRequest, errors.New("name is required"))
 			return
 		}
+		if input.DeviceType != "" && input.DeviceType != domain.DeviceTypeSensor && input.DeviceType != domain.DeviceTypeActuator && input.DeviceType != domain.DeviceTypeComposite {
+			writeError(writer, http.StatusBadRequest, errors.New("invalid device_type"))
+			return
+		}
+		if err := validateProperties(input.Properties); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
 		if input.ProductKey == "" {
 			input.ProductKey = generatedID("pk")
 		}
@@ -382,6 +390,11 @@ func (s *Server) getTelemetry(writer http.ResponseWriter, request *http.Request,
 	query := repository.TelemetryQuery{DeviceID: deviceID, Metric: request.URL.Query().Get("metric"), Limit: limit}
 	query.From = unixTime(request.URL.Query().Get("from"))
 	query.To = unixTime(request.URL.Query().Get("to"))
+	query.Interval = request.URL.Query().Get("interval")
+	if query.Interval != "" && query.Interval != "raw" && query.Interval != "1m" && query.Interval != "5m" && query.Interval != "1h" {
+		writeError(writer, http.StatusBadRequest, errors.New("interval must be raw, 1m, 5m, or 1h"))
+		return
+	}
 	items, err := s.repos.Telemetry.QueryTelemetry(request.Context(), query)
 	if err != nil {
 		writeRepositoryError(writer, err)
@@ -511,6 +524,10 @@ func (s *Server) handleRules(writer http.ResponseWriter, request *http.Request, 
 			writeError(writer, http.StatusBadRequest, err)
 			return
 		}
+		if !validOperator(input.Operator) || input.DurationSeconds < 0 || (input.ActionType != "alarm" && input.ActionType != "command") {
+			writeError(writer, http.StatusBadRequest, errors.New("invalid operator, duration_seconds, or action_type"))
+			return
+		}
 		enabled := true
 		if input.Enabled != nil {
 			enabled = *input.Enabled
@@ -625,6 +642,37 @@ func pathSegments(path string) []string {
 
 func validSegment(value string) bool {
 	return value != "" && !strings.ContainsAny(value, "/+#")
+}
+
+func validOperator(operator string) bool {
+	switch operator {
+	case ">", "<", ">=", "<=", "==", "!=":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateProperties(properties []domain.Property) error {
+	seen := make(map[string]struct{}, len(properties))
+	for _, property := range properties {
+		if !validSegment(property.Name) {
+			return errors.New("property name is required and cannot contain MQTT wildcards")
+		}
+		if _, exists := seen[property.Name]; exists {
+			return fmt.Errorf("duplicate property %q", property.Name)
+		}
+		seen[property.Name] = struct{}{}
+		switch property.DataType {
+		case domain.PropertyTypeInt, domain.PropertyTypeFloat, domain.PropertyTypeBool, domain.PropertyTypeString:
+		default:
+			return fmt.Errorf("unsupported property data_type %q", property.DataType)
+		}
+		if property.MinValue != nil && property.MaxValue != nil && *property.MinValue > *property.MaxValue {
+			return fmt.Errorf("property %q has invalid range", property.Name)
+		}
+	}
+	return nil
 }
 
 func generatedID(prefix string) string {

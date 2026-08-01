@@ -45,13 +45,14 @@ const (
 )
 
 type Product struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	ProductKey  string     `json:"product_key"`
-	Description string     `json:"description,omitempty"`
-	DeviceType  DeviceType `json:"device_type"`
-	Properties  []Property `json:"properties,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	ProductKey        string     `json:"product_key"`
+	Description       string     `json:"description,omitempty"`
+	DeviceType        DeviceType `json:"device_type"`
+	Properties        []Property `json:"properties,omitempty"`
+	OnlineDeviceCount int        `json:"online_device_count"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type Property struct {

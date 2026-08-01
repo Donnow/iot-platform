@@ -59,6 +59,30 @@ func TestStoreTelemetrySnapshotAndShadowDelta(t *testing.T) {
 	}
 }
 
+func TestStoreTelemetryAggregationAndOnlineProductCount(t *testing.T) {
+	store := New()
+	ctx := context.Background()
+	base := time.Date(2026, time.January, 2, 12, 0, 0, 0, time.UTC)
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	if err := store.SetDeviceStatus(ctx, "d1", domain.DeviceStatusOnline, &base); err != nil {
+		t.Fatal(err)
+	}
+	for i, value := range []float64{20, 22, 24} {
+		if err := store.AppendTelemetry(ctx, domain.Telemetry{DeviceID: "d1", ProductKey: "pk", Timestamp: base.Add(time.Duration(i)*time.Minute + 10*time.Second), Values: map[string]any{"temperature": value}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := store.QueryTelemetry(ctx, repository.TelemetryQuery{DeviceID: "d1", Metric: "temperature", Interval: "1h"})
+	if err != nil || len(items) != 1 || items[0].Values["temperature"] != 22.0 {
+		t.Fatalf("aggregated telemetry=%#v err=%v", items, err)
+	}
+	products, _, err := store.ListProducts(ctx, repository.ProductFilter{Page: 1, PageSize: 10})
+	if err != nil || len(products) != 1 || products[0].OnlineDeviceCount != 1 {
+		t.Fatalf("products=%#v err=%v", products, err)
+	}
+}
+
 func TestStorePaginationAndCommandTimeout(t *testing.T) {
 	store := New()
 	ctx := context.Background()

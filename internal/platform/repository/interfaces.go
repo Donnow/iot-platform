@@ -36,6 +36,7 @@ type TelemetryQuery struct {
 	Metric   string
 	From     time.Time
 	To       time.Time
+	Interval string
 	Limit    int
 }
 

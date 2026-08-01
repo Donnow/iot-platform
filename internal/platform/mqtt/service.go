@@ -318,12 +318,46 @@ func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) er
 		if !ok {
 			continue
 		}
+		if rule.ActionType == "command" {
+			if err := s.triggerRuleCommand(ctx, sample, rule); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := s.repos.Alarms.CreateAlarm(ctx, domain.Alarm{DeviceID: sample.DeviceID, RuleID: rule.ID, TriggerValue: value, TriggeredAt: sample.Timestamp}); err != nil {
 			return err
 		}
 		if s.metrics != nil {
 			s.metrics.IncAlarmsCreated()
 		}
+	}
+	return nil
+}
+
+func (s *Service) triggerRuleCommand(ctx context.Context, sample domain.Telemetry, rule domain.Rule) error {
+	method, _ := rule.ActionParams["method"].(string)
+	if method == "" {
+		return fmt.Errorf("rule %q command action requires method", rule.ID)
+	}
+	params := map[string]any{}
+	if raw, ok := rule.ActionParams["params"].(map[string]any); ok {
+		params = raw
+	}
+	device, err := s.repos.Devices.GetDevice(ctx, sample.DeviceID)
+	if err != nil {
+		return err
+	}
+	command, err := s.repos.Commands.CreateCommand(ctx, domain.Command{DeviceID: sample.DeviceID, Method: method, Params: params})
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{"command_id": command.ID, "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	if err := s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, sample.DeviceID, "command"), messaging.QoSAtLeastOnce, false, payload); err != nil {
+		_ = s.repos.Commands.UpdateCommandStatus(ctx, command.ID, domain.CommandStatusFailed, err.Error(), time.Now().UTC())
+		return err
 	}
 	return nil
 }

@@ -96,6 +96,11 @@ func (s *Store) ListProducts(ctx context.Context, filter repository.ProductFilte
 	s.mu.RLock()
 	products := make([]domain.Product, 0, len(s.products))
 	for _, product := range s.products {
+		for _, device := range s.devices {
+			if device.ProductKey == product.ProductKey && device.Status == domain.DeviceStatusOnline {
+				product.OnlineDeviceCount++
+			}
+		}
 		products = append(products, cloneProduct(product))
 	}
 	s.mu.RUnlock()
@@ -239,11 +244,77 @@ func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQu
 		}
 		result = append(result, cloneTelemetry(sample))
 	}
+	if query.Interval != "" && query.Interval != "raw" {
+		result = aggregateTelemetry(result, query.Interval)
+	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp.Before(result[j].Timestamp) })
 	if query.Limit > 0 && len(result) > query.Limit {
 		result = result[:query.Limit]
 	}
 	return result, nil
+}
+
+func aggregateTelemetry(samples []domain.Telemetry, interval string) []domain.Telemetry {
+	duration, ok := map[string]time.Duration{"1m": time.Minute, "5m": 5 * time.Minute, "1h": time.Hour}[interval]
+	if !ok || len(samples) == 0 {
+		return samples
+	}
+	type metricValue struct {
+		sum   float64
+		count int
+		last  any
+	}
+	type bucket struct {
+		deviceID   string
+		productKey string
+		values     map[string]metricValue
+	}
+	buckets := make(map[time.Time]*bucket)
+	for _, sample := range samples {
+		at := sample.Timestamp.UTC().Truncate(duration)
+		group := buckets[at]
+		if group == nil {
+			group = &bucket{deviceID: sample.DeviceID, productKey: sample.ProductKey, values: make(map[string]metricValue)}
+			buckets[at] = group
+		}
+		for name, raw := range sample.Values {
+			entry := group.values[name]
+			entry.last = raw
+			if value, ok := numericTelemetryValue(raw); ok {
+				entry.sum += value
+				entry.count++
+			}
+			group.values[name] = entry
+		}
+	}
+	result := make([]domain.Telemetry, 0, len(buckets))
+	for at, group := range buckets {
+		values := make(map[string]any, len(group.values))
+		for name, entry := range group.values {
+			if entry.count > 0 {
+				values[name] = entry.sum / float64(entry.count)
+			} else {
+				values[name] = entry.last
+			}
+		}
+		result = append(result, domain.Telemetry{DeviceID: group.deviceID, ProductKey: group.productKey, Timestamp: at, Values: values})
+	}
+	return result
+}
+
+func numericTelemetryValue(value any) (float64, bool) {
+	switch value := value.(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	default:
+		return 0, false
+	}
 }
 
 func (s *Store) SnapshotTelemetry(ctx context.Context, deviceID string) (map[string]domain.Telemetry, error) {
