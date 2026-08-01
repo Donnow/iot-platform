@@ -10,6 +10,8 @@ docs/
 ├── requirements/                     # 产品需求和验收基线
 │   └── iot-platform-srs.md
 ├── design/                           # 架构和关键技术设计
+│   ├── architecture.md
+│   └── business-logic.md
 ├── api/                              # HTTP、MQTT 和内部接口契约
 │   ├── backend-api.md
 │   └── openapi.yaml
@@ -19,6 +21,7 @@ docs/
 └── operations/                       # 部署、配置、运行手册和压测报告
     ├── device-simulator.md
     ├── platform.md
+    ├── issues-encountered.md
     └── load-test.md
 ```
 
@@ -36,6 +39,8 @@ docs/
 | [OpenAPI 契约](api/openapi.yaml) | 可导入 Swagger UI 的 HTTP 接口定义 | Review |
 | [后端平台运行手册](operations/platform.md) | Compose 启动、健康检查、指标和排障 | Draft |
 | [平台架构](design/architecture.md) | 运行拓扑、数据职责和启动模式 | Draft |
+| [平台业务逻辑详解](design/business-logic.md) | 全部业务流程、状态机、消息契约与容错机制 | Baseline |
+| [问题记录与排障总结](operations/issues-encountered.md) | 开发与验证中遇到的问题：现象、根因、解决方案 | Baseline |
 | [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
