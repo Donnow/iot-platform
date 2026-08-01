@@ -74,3 +74,34 @@ CREATE TABLE IF NOT EXISTS device_shadows (
     reported JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS firmwares (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    version VARCHAR(32) NOT NULL,
+    md5 VARCHAR(32) NOT NULL,
+    file_url TEXT NOT NULL,
+    changelog TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(product_id, version),
+    CHECK (md5 ~ '^[0-9a-fA-F]{32}$')
+);
+
+CREATE TABLE IF NOT EXISTS ota_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    firmware_id UUID NOT NULL REFERENCES firmwares(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ota_task_devices (
+    task_id UUID NOT NULL REFERENCES ota_tasks(id) ON DELETE CASCADE,
+    device_id VARCHAR(64) NOT NULL REFERENCES devices(device_id),
+    stage VARCHAR(16) NOT NULL DEFAULT 'pending',
+    progress INT NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+    message TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY(task_id, device_id),
+    CHECK (stage IN ('pending', 'downloading', 'installing', 'success', 'failed'))
+);

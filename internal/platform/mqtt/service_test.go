@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,20 @@ import (
 	"iot-perform/internal/platform/memory"
 	"iot-perform/internal/platform/repository"
 )
+
+type recordingPublisher struct {
+	messages []recordedMessage
+}
+
+type recordedMessage struct {
+	topic   string
+	payload []byte
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, topic string, _ byte, _ bool, payload []byte) error {
+	p.messages = append(p.messages, recordedMessage{topic: topic, payload: append([]byte(nil), payload...)})
+	return nil
+}
 
 func TestParseDeviceTopic(t *testing.T) {
 	product, device, suffix, err := ParseDeviceTopic("devices/pk/d1/command/reply")
@@ -85,6 +100,58 @@ func TestSetLifecycle(t *testing.T) {
 	device, err := store.GetDevice(ctx, "d1")
 	if err != nil || device.Status != domain.DeviceStatusOnline {
 		t.Fatalf("device=%#v err=%v", device, err)
+	}
+}
+
+func TestSetLifecyclePublishesShadowAndPendingOTA(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	_, _ = store.CreateFirmware(ctx, domain.Firmware{ID: "fw-1", ProductKey: "pk", Version: "1.0.0", MD5: "0123456789abcdef0123456789abcdef", FileURL: "https://example.test/fw.bin"})
+	_, err := store.CreateOTATask(ctx, domain.OTATask{ProductKey: "pk", FirmwareID: "fw-1", Version: "1.0.0", URL: "https://example.test/fw.bin", MD5: "0123456789abcdef0123456789abcdef", TargetDeviceIDs: []string{"d1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertDesired(ctx, "d1", map[string]any{"targetTemp": 26}); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &recordingPublisher{}
+	service := NewServiceWithClient(nil, store.Repositories(), nil)
+	service.publisher = publisher
+	if err := service.SetLifecycle(ctx, "d1", true, time.Unix(100, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.messages) != 2 {
+		t.Fatalf("published=%#v", publisher.messages)
+	}
+	if publisher.messages[0].topic != "devices/pk/d1/shadow/desired" || publisher.messages[1].topic != "devices/pk/d1/ota" {
+		t.Fatalf("topics=%#v", publisher.messages)
+	}
+	var ota map[string]any
+	if err := json.Unmarshal(publisher.messages[1].payload, &ota); err != nil || ota["version"] != "1.0.0" {
+		t.Fatalf("ota payload=%#v err=%v", ota, err)
+	}
+}
+
+func TestProcessOTAProgress(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	_, _ = store.CreateFirmware(ctx, domain.Firmware{ID: "fw-1", ProductKey: "pk", Version: "1.0.0", MD5: "0123456789abcdef0123456789abcdef", FileURL: "https://example.test/fw.bin"})
+	task, err := store.CreateOTATask(ctx, domain.OTATask{ProductKey: "pk", FirmwareID: "fw-1", Version: "1.0.0", URL: "https://example.test/fw.bin", MD5: "0123456789abcdef0123456789abcdef", TargetDeviceIDs: []string{"d1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewServiceWithClient(nil, store.Repositories(), nil)
+	payload := []byte(`{"ts":1722000000000,"event_type":"ota_progress","data":{"version":"1.0.0","stage":"success","progress":100,"message":"ok"}}`)
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/event", payload); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.GetOTATask(ctx, task.ID)
+	if err != nil || updated.Summary[domain.OTAStageSuccess] != 1 {
+		t.Fatalf("task=%#v err=%v", updated, err)
 	}
 }
 

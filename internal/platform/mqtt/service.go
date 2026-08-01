@@ -95,11 +95,12 @@ func (c *Client) Close(context.Context) error {
 }
 
 type Service struct {
-	repos   repository.Repositories
-	client  *Client
-	logger  *slog.Logger
-	metrics Metrics
-	rules   map[string]ruleState
+	repos     repository.Repositories
+	client    *Client
+	publisher messaging.Publisher
+	logger    *slog.Logger
+	metrics   Metrics
+	rules     map[string]ruleState
 
 	mu sync.Mutex
 }
@@ -128,7 +129,7 @@ func NewServiceWithMetrics(config Config, repos repository.Repositories, logger 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}, nil
+	return &Service{repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}, nil
 }
 
 func NewServiceWithClient(client *Client, repos repository.Repositories, logger *slog.Logger) *Service {
@@ -139,7 +140,7 @@ func NewServiceWithClientAndMetrics(client *Client, repos repository.Repositorie
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
+	return &Service{repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
 }
 
 func (s *Service) Start(ctx context.Context) error {
@@ -173,10 +174,10 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 func (s *Service) Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error {
-	if s.client == nil {
+	if s.publisher == nil {
 		return errors.New("MQTT client is required")
 	}
-	return s.client.Publish(ctx, topic, qos, retained, payload)
+	return s.publisher.Publish(ctx, topic, qos, retained, payload)
 }
 
 func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []byte) error {
@@ -214,7 +215,50 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 		}
 		return s.evaluateRules(ctx, sample)
 	case "event":
-		return nil
+		var event struct {
+			TS        int64          `json:"ts"`
+			EventType string         `json:"event_type"`
+			Data      map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return err
+		}
+		if event.EventType != "ota_progress" || s.repos.OTA == nil {
+			return nil
+		}
+		version, _ := event.Data["version"].(string)
+		stage, _ := event.Data["stage"].(string)
+		message, _ := event.Data["message"].(string)
+		if version == "" || stage == "" {
+			return errors.New("OTA progress requires version and stage")
+		}
+		progress, ok := numberValue(event.Data["progress"])
+		if !ok || progress != float64(int(progress)) {
+			return errors.New("OTA progress requires numeric progress")
+		}
+		updatedAt := time.Now().UTC()
+		if event.TS > 0 {
+			updatedAt = time.UnixMilli(event.TS).UTC()
+		}
+		tasks, err := s.repos.OTA.ListOTATasks(ctx, productKey)
+		if err != nil {
+			return err
+		}
+		var updateErr error
+		for _, task := range tasks {
+			if task.Version != version {
+				continue
+			}
+			for _, target := range task.TargetDeviceIDs {
+				if target == deviceID {
+					if err := s.repos.OTA.UpdateOTAProgress(ctx, task.ID, deviceID, stage, int(progress), message, updatedAt); err != nil {
+						updateErr = err
+					}
+					break
+				}
+			}
+		}
+		return updateErr
 	case "command/reply":
 		var reply struct {
 			CommandID string `json:"command_id"`
@@ -277,28 +321,63 @@ func (s *Service) Authenticate(ctx context.Context, deviceID, secret string) (Au
 
 func (s *Service) SetLifecycle(ctx context.Context, deviceID string, online bool, at time.Time) error {
 	status := domain.DeviceStatusOffline
+	var onlineAt *time.Time
 	if online {
 		status = domain.DeviceStatusOnline
+		onlineAt = &at
 	}
-	if err := s.repos.Devices.SetDeviceStatus(ctx, deviceID, status, &at); err != nil {
+	if err := s.repos.Devices.SetDeviceStatus(ctx, deviceID, status, onlineAt); err != nil {
 		return err
 	}
-	if !online || s.client == nil {
+	if !online || s.publisher == nil {
 		return nil
-	}
-	shadow, err := s.repos.Shadows.GetShadow(ctx, deviceID)
-	if err != nil || len(shadow.Delta) == 0 {
-		return err
 	}
 	device, err := s.repos.Devices.GetDevice(ctx, deviceID)
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(shadow.Desired)
+	if s.repos.Shadows != nil {
+		shadow, err := s.repos.Shadows.GetShadow(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		if len(shadow.Delta) > 0 {
+			payload, err := json.Marshal(shadow.Desired)
+			if err != nil {
+				return err
+			}
+			if err := s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), messaging.QoSAtLeastOnce, false, payload); err != nil {
+				return err
+			}
+		}
+	}
+	if s.repos.OTA == nil {
+		return nil
+	}
+	tasks, err := s.repos.OTA.ListPendingOTA(ctx, deviceID)
 	if err != nil {
 		return err
 	}
-	return s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, deviceID, "shadow/desired"), messaging.QoSAtLeastOnce, false, payload)
+	for _, task := range tasks {
+		if err := s.publishOTANotification(ctx, device, task); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) publishOTANotification(ctx context.Context, device domain.Device, task domain.OTATask) error {
+	payload, err := json.Marshal(map[string]any{
+		"task_id":     task.ID,
+		"firmware_id": task.FirmwareID,
+		"version":     task.Version,
+		"url":         task.URL,
+		"md5":         task.MD5,
+	})
+	if err != nil {
+		return err
+	}
+	return s.Publish(ctx, messaging.DeviceTopic(device.ProductKey, device.DeviceID, "ota"), messaging.QoSAtLeastOnce, false, payload)
 }
 
 func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) error {

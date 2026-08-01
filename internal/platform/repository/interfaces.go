@@ -95,6 +95,17 @@ type ShadowRepository interface {
 	UpsertReported(context.Context, string, map[string]any) (domain.Shadow, error)
 }
 
+type OTARepository interface {
+	CreateFirmware(context.Context, domain.Firmware) (domain.Firmware, error)
+	GetFirmware(context.Context, string) (domain.Firmware, error)
+	ListFirmwares(context.Context, string) ([]domain.Firmware, error)
+	CreateOTATask(context.Context, domain.OTATask) (domain.OTATask, error)
+	GetOTATask(context.Context, string) (domain.OTATask, error)
+	ListOTATasks(context.Context, string) ([]domain.OTATask, error)
+	UpdateOTAProgress(context.Context, string, string, string, int, string, time.Time) error
+	ListPendingOTA(context.Context, string) ([]domain.OTATask, error)
+}
+
 type Repositories struct {
 	Products  ProductRepository
 	Devices   DeviceRepository
@@ -103,4 +114,5 @@ type Repositories struct {
 	Alarms    AlarmRepository
 	Commands  CommandRepository
 	Shadows   ShadowRepository
+	OTA       OTARepository
 }

@@ -135,3 +135,35 @@ type Firmware struct {
 	Changelog  string    `json:"changelog,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+type OTAStage string
+
+const (
+	OTAStagePending     OTAStage = "pending"
+	OTAStageDownloading OTAStage = "downloading"
+	OTAStageInstalling  OTAStage = "installing"
+	OTAStageSuccess     OTAStage = "success"
+	OTAStageFailed      OTAStage = "failed"
+)
+
+type OTADeviceProgress struct {
+	DeviceID  string    `json:"device_id"`
+	Stage     OTAStage  `json:"stage"`
+	Progress  int       `json:"progress"`
+	Message   string    `json:"message,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type OTATask struct {
+	ID              string              `json:"task_id"`
+	ProductKey      string              `json:"product_key"`
+	FirmwareID      string              `json:"firmware_id"`
+	Version         string              `json:"version"`
+	URL             string              `json:"url"`
+	MD5             string              `json:"md5"`
+	TargetDeviceIDs []string            `json:"target_device_ids"`
+	Progress        []OTADeviceProgress `json:"progress"`
+	Summary         map[OTAStage]int    `json:"summary"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}

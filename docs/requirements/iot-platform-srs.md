@@ -321,6 +321,25 @@ CREATE TABLE firmwares (
     created_at  TIMESTAMPTZ DEFAULT now(),
     UNIQUE(product_id, version)
 );
+
+-- OTA 任务及设备进度
+CREATE TABLE ota_tasks (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id   UUID NOT NULL REFERENCES products(id),
+    firmware_id  UUID NOT NULL REFERENCES firmwares(id),
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    updated_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE ota_task_devices (
+    task_id      UUID NOT NULL REFERENCES ota_tasks(id) ON DELETE CASCADE,
+    device_id    VARCHAR(64) NOT NULL REFERENCES devices(device_id),
+    stage        VARCHAR(16) DEFAULT 'pending',
+    progress     INT DEFAULT 0,
+    message      TEXT,
+    updated_at   TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY(task_id, device_id)
+);
 ```
 
 ---
@@ -445,4 +464,3 @@ $share/platform/devices/+/+/shadow/reported      影子同步
 - 移动端 App
 - 邮件/短信告警推送（只做平台内告警记录）
 - EMQX 集群部署（压测用单节点）
-

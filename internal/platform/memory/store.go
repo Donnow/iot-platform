@@ -30,6 +30,9 @@ type Store struct {
 	alarms    map[string]domain.Alarm
 	commands  map[string]domain.Command
 	shadows   map[string]domain.Shadow
+	firmwares map[string]domain.Firmware
+	otaTasks  map[string]domain.OTATask
+	otaState  map[string]map[string]domain.OTADeviceProgress
 }
 
 func New() *Store {
@@ -41,6 +44,9 @@ func New() *Store {
 		alarms:    make(map[string]domain.Alarm),
 		commands:  make(map[string]domain.Command),
 		shadows:   make(map[string]domain.Shadow),
+		firmwares: make(map[string]domain.Firmware),
+		otaTasks:  make(map[string]domain.OTATask),
+		otaState:  make(map[string]map[string]domain.OTADeviceProgress),
 	}
 }
 
@@ -53,6 +59,7 @@ func (s *Store) Repositories() repository.Repositories {
 		Alarms:    s,
 		Commands:  s,
 		Shadows:   s,
+		OTA:       s,
 	}
 }
 
@@ -555,6 +562,189 @@ func (s *Store) UpsertReported(ctx context.Context, deviceID string, reported ma
 	return cloneShadow(shadow), nil
 }
 
+func (s *Store) CreateFirmware(ctx context.Context, firmware domain.Firmware) (domain.Firmware, error) {
+	if err := contextErr(ctx); err != nil {
+		return domain.Firmware{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.products[firmware.ProductKey]; !exists {
+		return domain.Firmware{}, ErrNotFound
+	}
+	for _, existing := range s.firmwares {
+		if existing.ProductKey == firmware.ProductKey && existing.Version == firmware.Version {
+			return domain.Firmware{}, ErrConflict
+		}
+	}
+	if firmware.ID == "" {
+		firmware.ID = s.nextID("firmware")
+	}
+	if firmware.CreatedAt.IsZero() {
+		firmware.CreatedAt = time.Now().UTC()
+	}
+	s.firmwares[firmware.ID] = firmware
+	return firmware, nil
+}
+
+func (s *Store) GetFirmware(ctx context.Context, firmwareID string) (domain.Firmware, error) {
+	if err := contextErr(ctx); err != nil {
+		return domain.Firmware{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	firmware, exists := s.firmwares[firmwareID]
+	if !exists {
+		return domain.Firmware{}, ErrNotFound
+	}
+	return firmware, nil
+}
+
+func (s *Store) ListFirmwares(ctx context.Context, productKey string) ([]domain.Firmware, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	result := make([]domain.Firmware, 0, len(s.firmwares))
+	for _, firmware := range s.firmwares {
+		if productKey == "" || firmware.ProductKey == productKey {
+			result = append(result, firmware)
+		}
+	}
+	s.mu.RUnlock()
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (s *Store) CreateOTATask(ctx context.Context, task domain.OTATask) (domain.OTATask, error) {
+	if err := contextErr(ctx); err != nil {
+		return domain.OTATask{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	firmware, exists := s.firmwares[task.FirmwareID]
+	if !exists || firmware.ProductKey != task.ProductKey || firmware.Version != task.Version {
+		return domain.OTATask{}, ErrNotFound
+	}
+	if len(task.TargetDeviceIDs) == 0 {
+		return domain.OTATask{}, errors.New("OTA task needs at least one target device")
+	}
+	seen := make(map[string]struct{}, len(task.TargetDeviceIDs))
+	for _, deviceID := range task.TargetDeviceIDs {
+		if _, duplicate := seen[deviceID]; duplicate {
+			return domain.OTATask{}, ErrConflict
+		}
+		device, exists := s.devices[deviceID]
+		if !exists || device.ProductKey != task.ProductKey || device.Status == domain.DeviceStatusDeleted {
+			return domain.OTATask{}, ErrNotFound
+		}
+		seen[deviceID] = struct{}{}
+	}
+	if task.ID == "" {
+		task.ID = s.nextID("ota")
+	}
+	now := time.Now().UTC()
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = now
+	}
+	if task.UpdatedAt.IsZero() {
+		task.UpdatedAt = now
+	}
+	s.otaTasks[task.ID] = cloneOTATask(task)
+	s.otaState[task.ID] = make(map[string]domain.OTADeviceProgress, len(task.TargetDeviceIDs))
+	for _, deviceID := range task.TargetDeviceIDs {
+		s.otaState[task.ID][deviceID] = domain.OTADeviceProgress{DeviceID: deviceID, Stage: domain.OTAStagePending, UpdatedAt: now}
+	}
+	return s.otaTaskLocked(task.ID), nil
+}
+
+func (s *Store) GetOTATask(ctx context.Context, taskID string) (domain.OTATask, error) {
+	if err := contextErr(ctx); err != nil {
+		return domain.OTATask{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, exists := s.otaTasks[taskID]; !exists {
+		return domain.OTATask{}, ErrNotFound
+	}
+	return s.otaTaskLocked(taskID), nil
+}
+
+func (s *Store) ListOTATasks(ctx context.Context, productKey string) ([]domain.OTATask, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	result := make([]domain.OTATask, 0, len(s.otaTasks))
+	for id, task := range s.otaTasks {
+		if productKey == "" || task.ProductKey == productKey {
+			result = append(result, s.otaTaskLocked(id))
+		}
+	}
+	s.mu.RUnlock()
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (s *Store) UpdateOTAProgress(ctx context.Context, taskID, deviceID, stage string, progress int, message string, updatedAt time.Time) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if progress < 0 || progress > 100 {
+		return errors.New("OTA progress must be between 0 and 100")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.otaTasks[taskID]; !exists {
+		return ErrNotFound
+	}
+	if _, exists := s.otaState[taskID][deviceID]; !exists {
+		return ErrNotFound
+	}
+	parsedStage := domain.OTAStage(stage)
+	switch parsedStage {
+	case domain.OTAStagePending, domain.OTAStageDownloading, domain.OTAStageInstalling, domain.OTAStageSuccess, domain.OTAStageFailed:
+	default:
+		return errors.New("unsupported OTA stage")
+	}
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	s.otaState[taskID][deviceID] = domain.OTADeviceProgress{DeviceID: deviceID, Stage: parsedStage, Progress: progress, Message: message, UpdatedAt: updatedAt}
+	task := s.otaTasks[taskID]
+	task.UpdatedAt = updatedAt
+	s.otaTasks[taskID] = task
+	return nil
+}
+
+func (s *Store) ListPendingOTA(ctx context.Context, deviceID string) ([]domain.OTATask, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	result := make([]domain.OTATask, 0)
+	for id := range s.otaTasks {
+		progress, ok := s.otaState[id][deviceID]
+		if ok && progress.Stage != domain.OTAStageSuccess && progress.Stage != domain.OTAStageFailed {
+			result = append(result, s.otaTaskLocked(id))
+		}
+	}
+	s.mu.RUnlock()
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (s *Store) otaTaskLocked(taskID string) domain.OTATask {
+	task := cloneOTATask(s.otaTasks[taskID])
+	task.Progress = task.Progress[:0]
+	task.Summary = make(map[domain.OTAStage]int)
+	for _, progress := range s.otaState[taskID] {
+		task.Progress = append(task.Progress, progress)
+		task.Summary[progress.Stage]++
+	}
+	sort.Slice(task.Progress, func(i, j int) bool { return task.Progress[i].DeviceID < task.Progress[j].DeviceID })
+	return task
+}
+
 func (s *Store) nextID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, atomic.AddUint64(&s.sequence, 1))
 }
@@ -659,6 +849,16 @@ func cloneShadow(shadow domain.Shadow) domain.Shadow {
 	return shadow
 }
 
+func cloneOTATask(task domain.OTATask) domain.OTATask {
+	task.TargetDeviceIDs = append([]string(nil), task.TargetDeviceIDs...)
+	task.Progress = append([]domain.OTADeviceProgress(nil), task.Progress...)
+	task.Summary = make(map[domain.OTAStage]int, len(task.Summary))
+	for stage, count := range task.Summary {
+		task.Summary[stage] = count
+	}
+	return task
+}
+
 var _ repository.Repositories = repository.Repositories{}
 var _ repository.ProductRepository = (*Store)(nil)
 var _ repository.DeviceRepository = (*Store)(nil)
@@ -667,6 +867,7 @@ var _ repository.RuleRepository = (*Store)(nil)
 var _ repository.AlarmRepository = (*Store)(nil)
 var _ repository.CommandRepository = (*Store)(nil)
 var _ repository.ShadowRepository = (*Store)(nil)
+var _ repository.OTARepository = (*Store)(nil)
 
 func (s *Store) ProductCount() int {
 	s.mu.RLock()

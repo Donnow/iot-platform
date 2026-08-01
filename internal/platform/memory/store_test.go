@@ -107,3 +107,57 @@ func TestStorePaginationAndCommandTimeout(t *testing.T) {
 		t.Fatalf("command=%#v err=%v", command, err)
 	}
 }
+
+func TestStoreOTAProgressAndPendingTasks(t *testing.T) {
+	store := New()
+	ctx := context.Background()
+	if _, err := store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, deviceID := range []string{"d1", "d2"} {
+		if _, err := store.CreateDevice(ctx, domain.Device{DeviceID: deviceID, ProductKey: "pk", Name: deviceID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firmware, err := store.CreateFirmware(ctx, domain.Firmware{ID: "fw-1", ProductKey: "pk", Version: "1.2.0", MD5: "0123456789abcdef0123456789abcdef", FileURL: "https://example.test/fw.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateFirmware(ctx, domain.Firmware{ProductKey: "pk", Version: firmware.Version}); err != ErrConflict {
+		t.Fatalf("duplicate firmware err=%v", err)
+	}
+	task, err := store.CreateOTATask(ctx, domain.OTATask{ProductKey: "pk", FirmwareID: firmware.ID, Version: firmware.Version, URL: firmware.FileURL, MD5: firmware.MD5, TargetDeviceIDs: []string{"d1", "d2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Summary[domain.OTAStagePending] != 2 {
+		t.Fatalf("initial summary=%#v", task.Summary)
+	}
+	if err := store.UpdateOTAProgress(ctx, task.ID, "d1", string(domain.OTAStageDownloading), 45, "downloading", time.Unix(200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateOTAProgress(ctx, task.ID, "d1", string(domain.OTAStageInstalling), 50, "installing", time.Unix(201, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateOTAProgress(ctx, task.ID, "d1", string(domain.OTAStageSuccess), 100, "ok", time.Unix(202, 0)); err != nil {
+		t.Fatal(err)
+	}
+	task, err = store.GetOTATask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Summary[domain.OTAStageSuccess] != 1 || task.Summary[domain.OTAStagePending] != 1 {
+		t.Fatalf("completed summary=%#v", task.Summary)
+	}
+	pending, err := store.ListPendingOTA(ctx, "d1")
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("d1 pending=%#v err=%v", pending, err)
+	}
+	pending, err = store.ListPendingOTA(ctx, "d2")
+	if err != nil || len(pending) != 1 || pending[0].ID != task.ID {
+		t.Fatalf("d2 pending=%#v err=%v", pending, err)
+	}
+	if err := store.UpdateOTAProgress(ctx, task.ID, "d2", string(domain.OTAStageDownloading), 101, "", time.Time{}); err == nil {
+		t.Fatal("out-of-range progress should fail")
+	}
+}

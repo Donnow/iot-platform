@@ -155,6 +155,70 @@ func TestEMQXInternalHooksAndMetrics(t *testing.T) {
 	}
 }
 
+type otaPublisher struct {
+	topics []string
+}
+
+func (p *otaPublisher) Publish(_ context.Context, topic string, _ byte, _ bool, _ []byte) error {
+	p.topics = append(p.topics, topic)
+	return nil
+}
+
+func TestFirmwareAndOTARoutes(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "online", ProductKey: "pk", Name: "Online"})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "offline", ProductKey: "pk", Name: "Offline"})
+	when := time.Unix(100, 0)
+	if err := store.SetDeviceStatus(ctx, "online", domain.DeviceStatusOnline, &when); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &otaPublisher{}
+	server := NewServer(store.Repositories(), publisher, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/firmwares", jsonBody(t, map[string]any{
+		"product_key": "pk", "version": "1.2.3", "md5": "0123456789abcdef0123456789abcdef", "file_url": "https://example.test/fw.bin",
+	}))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("firmware status=%d body=%s", response.Code, response.Body.String())
+	}
+	firmwares, err := store.ListFirmwares(ctx, "pk")
+	if err != nil || len(firmwares) != 1 {
+		t.Fatalf("firmwares=%#v err=%v", firmwares, err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/ota/tasks", jsonBody(t, map[string]any{
+		"product_key": "pk", "firmware_id": firmwares[0].ID, "target": "all",
+	}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || len(publisher.topics) != 1 || publisher.topics[0] != "devices/pk/online/ota" {
+		t.Fatalf("OTA status=%d topics=%#v body=%s", response.Code, publisher.topics, response.Body.String())
+	}
+	var task domain.OTATask
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Summary[domain.OTAStagePending] != 2 {
+		t.Fatalf("task summary=%#v", task.Summary)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/ota/tasks/"+task.ID, nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"summary"`) {
+		t.Fatalf("task get status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/firmwares", jsonBody(t, map[string]any{
+		"product_key": "pk", "version": "1.2.3", "md5": "0123456789abcdef0123456789abcdef", "file_url": "https://example.test/duplicate.bin",
+	}))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("duplicate firmware status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func jsonBody(t *testing.T, value any) *strings.Reader {
 	t.Helper()
 	data, err := json.Marshal(value)

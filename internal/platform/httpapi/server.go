@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.handleAlarms(writer, request, segments[2:])
 	case "rules":
 		s.handleRules(writer, request, segments[2:])
+	case "firmwares":
+		s.handleFirmwares(writer, request, segments[2:])
+	case "ota":
+		s.handleOTA(writer, request, segments[2:])
 	default:
 		writeError(writer, http.StatusNotFound, errors.New("route not found"))
 	}
@@ -593,6 +598,240 @@ func (s *Server) handleAlarms(writer http.ResponseWriter, request *http.Request,
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"items": alarms, "page": meta})
+}
+
+type firmwareRequest struct {
+	ProductKey string `json:"product_key"`
+	Version    string `json:"version"`
+	MD5        string `json:"md5"`
+	FileURL    string `json:"file_url"`
+	Changelog  string `json:"changelog"`
+}
+
+func (s *Server) handleFirmwares(writer http.ResponseWriter, request *http.Request, rest []string) {
+	if len(rest) != 0 {
+		writeError(writer, http.StatusNotFound, errors.New("route not found"))
+		return
+	}
+	switch request.Method {
+	case http.MethodPost:
+		var input firmwareRequest
+		if err := readJSON(request, &input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		if err := validateFirmwareRequest(input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		firmware, err := s.repos.OTA.CreateFirmware(request.Context(), domain.Firmware{
+			ProductKey: input.ProductKey,
+			Version:    input.Version,
+			MD5:        strings.ToLower(input.MD5),
+			FileURL:    input.FileURL,
+			Changelog:  input.Changelog,
+		})
+		if err != nil {
+			writeRepositoryError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, firmware)
+	case http.MethodGet:
+		firmwares, err := s.repos.OTA.ListFirmwares(request.Context(), request.URL.Query().Get("product_key"))
+		if err != nil {
+			writeRepositoryError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"items": firmwares})
+	default:
+		writeError(writer, http.StatusMethodNotAllowed, errors.New("method not allowed"))
+	}
+}
+
+type otaTaskRequest struct {
+	ProductKey      string   `json:"product_key"`
+	FirmwareID      string   `json:"firmware_id"`
+	Target          string   `json:"target"`
+	TargetDeviceIDs []string `json:"target_device_ids"`
+}
+
+func (s *Server) handleOTA(writer http.ResponseWriter, request *http.Request, rest []string) {
+	if len(rest) == 0 || rest[0] != "tasks" {
+		writeError(writer, http.StatusNotFound, errors.New("route not found"))
+		return
+	}
+	if len(rest) == 1 {
+		s.handleOTATasks(writer, request)
+		return
+	}
+	if len(rest) == 2 && request.Method == http.MethodGet {
+		task, err := s.repos.OTA.GetOTATask(request.Context(), rest[1])
+		if err != nil {
+			writeRepositoryError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, task)
+		return
+	}
+	writeError(writer, http.StatusNotFound, errors.New("route not found"))
+}
+
+func (s *Server) handleOTATasks(writer http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodGet:
+		tasks, err := s.repos.OTA.ListOTATasks(request.Context(), request.URL.Query().Get("product_key"))
+		if err != nil {
+			writeRepositoryError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"items": tasks})
+	case http.MethodPost:
+		var input otaTaskRequest
+		if err := readJSON(request, &input); err != nil {
+			writeError(writer, http.StatusBadRequest, err)
+			return
+		}
+		task, err := s.createOTATask(request, input)
+		if err != nil {
+			if errors.Is(err, errInvalidOTATarget) || errors.Is(err, errNoOTATargets) {
+				writeError(writer, http.StatusBadRequest, err)
+				return
+			}
+			writeRepositoryError(writer, err)
+			return
+		}
+		if err := s.notifyOnlineOTATask(request.Context(), task); err != nil {
+			writeError(writer, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, task)
+	default:
+		writeError(writer, http.StatusMethodNotAllowed, errors.New("method not allowed"))
+	}
+}
+
+var (
+	semverPattern       = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+	errInvalidOTATarget = errors.New("target must be all or devices with target_device_ids")
+	errNoOTATargets     = errors.New("OTA task has no target devices")
+)
+
+func validateFirmwareRequest(input firmwareRequest) error {
+	if !validSegment(input.ProductKey) || input.Version == "" || input.FileURL == "" {
+		return errors.New("product_key, version, and file_url are required")
+	}
+	if !semverPattern.MatchString(input.Version) {
+		return errors.New("version must be a valid SemVer")
+	}
+	if len(input.MD5) != 32 {
+		return errors.New("md5 must be a 32-character hexadecimal digest")
+	}
+	if _, err := hex.DecodeString(input.MD5); err != nil {
+		return errors.New("md5 must be a 32-character hexadecimal digest")
+	}
+	return nil
+}
+
+func (s *Server) createOTATask(request *http.Request, input otaTaskRequest) (domain.OTATask, error) {
+	if !validSegment(input.ProductKey) || input.FirmwareID == "" {
+		return domain.OTATask{}, errInvalidOTATarget
+	}
+	firmware, err := s.repos.OTA.GetFirmware(request.Context(), input.FirmwareID)
+	if err != nil {
+		return domain.OTATask{}, err
+	}
+	if firmware.ProductKey != input.ProductKey {
+		return domain.OTATask{}, repository.ErrNotFound
+	}
+	target := strings.ToLower(strings.TrimSpace(input.Target))
+	if target == "" {
+		if len(input.TargetDeviceIDs) > 0 {
+			target = "devices"
+		} else {
+			target = "all"
+		}
+	}
+	var targetDeviceIDs []string
+	switch target {
+	case "all":
+		if len(input.TargetDeviceIDs) > 0 {
+			return domain.OTATask{}, errInvalidOTATarget
+		}
+		targetDeviceIDs, err = s.allDeviceIDs(request, input.ProductKey)
+	case "devices":
+		targetDeviceIDs = append([]string(nil), input.TargetDeviceIDs...)
+	default:
+		return domain.OTATask{}, errInvalidOTATarget
+	}
+	if err != nil {
+		return domain.OTATask{}, err
+	}
+	if len(targetDeviceIDs) == 0 {
+		return domain.OTATask{}, errNoOTATargets
+	}
+	seen := make(map[string]struct{}, len(targetDeviceIDs))
+	for _, deviceID := range targetDeviceIDs {
+		if !validSegment(deviceID) {
+			return domain.OTATask{}, errInvalidOTATarget
+		}
+		if _, exists := seen[deviceID]; exists {
+			return domain.OTATask{}, errInvalidOTATarget
+		}
+		seen[deviceID] = struct{}{}
+	}
+	return s.repos.OTA.CreateOTATask(request.Context(), domain.OTATask{
+		ProductKey:      input.ProductKey,
+		FirmwareID:      firmware.ID,
+		Version:         firmware.Version,
+		URL:             firmware.FileURL,
+		MD5:             firmware.MD5,
+		TargetDeviceIDs: targetDeviceIDs,
+	})
+}
+
+func (s *Server) allDeviceIDs(request *http.Request, productKey string) ([]string, error) {
+	var result []string
+	for page := 1; ; page++ {
+		devices, meta, err := s.repos.Devices.ListDevices(request.Context(), repository.DeviceFilter{ProductKey: productKey, Page: page, PageSize: 100})
+		if err != nil {
+			return nil, err
+		}
+		for _, device := range devices {
+			result = append(result, device.DeviceID)
+		}
+		if len(result) >= meta.Total || len(devices) == 0 {
+			return result, nil
+		}
+	}
+}
+
+func (s *Server) notifyOnlineOTATask(ctx context.Context, task domain.OTATask) error {
+	if s.publisher == nil {
+		return nil
+	}
+	payload, err := json.Marshal(map[string]any{
+		"task_id":     task.ID,
+		"firmware_id": task.FirmwareID,
+		"version":     task.Version,
+		"url":         task.URL,
+		"md5":         task.MD5,
+	})
+	if err != nil {
+		return err
+	}
+	for _, deviceID := range task.TargetDeviceIDs {
+		device, err := s.repos.Devices.GetDevice(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		if device.Status != domain.DeviceStatusOnline {
+			continue
+		}
+		if err := s.publisher.Publish(ctx, messaging.DeviceTopic(task.ProductKey, deviceID, "ota"), messaging.QoSAtLeastOnce, false, payload); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readJSON(request *http.Request, target any) error {

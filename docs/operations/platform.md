@@ -46,7 +46,21 @@ EMQX 的 HTTP authentication 应指向 `/internal/emqx/auth`，生命周期 webh
 应通过 Docker 网络、反向代理或网络策略限制其来源，仅允许 EMQX 访问。
 
 平台收到设备上线事件后会更新设备状态；如果影子存在未同步的 desired，会立即
-向设备 topic 补发 desired。
+向设备 topic 补发 desired。设备上线时还会补发该设备所有未完成的 OTA 任务；
+任务创建时只通知当前在线的目标设备。
+
+## OTA 联调
+
+先创建产品和设备，再上传固件元数据并创建任务：
+
+```bash
+curl -X POST http://localhost:8080/api/firmwares \
+  -H 'Content-Type: application/json' \
+  -d '{"product_key":"temperature","version":"1.2.3","md5":"0123456789abcdef0123456789abcdef","file_url":"https://firmware.example/temperature.bin"}'
+```
+
+使用返回的 `id` 调用 `POST /api/ota/tasks`。任务详情中的 `summary` 展示各 OTA
+阶段的设备数；设备模拟器会依次上报 downloading、installing 和 success。
 
 ## 排障
 
