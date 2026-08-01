@@ -16,7 +16,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-服务入口为 `http://localhost:8080`，EMQX MQTT 端口为 `1883`，Dashboard
+管理台入口为 `http://localhost:3000`，后端入口为 `http://localhost:8080`，EMQX MQTT 端口为 `1883`，Dashboard
 端口为 `18083`。Compose 使用持久化 volume 保存 PostgreSQL、Redis 和 TDengine
 数据；当前 Go 服务的数据仓储仍使用内存实现，服务重启后业务数据会重置。
 

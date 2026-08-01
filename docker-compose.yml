@@ -1,4 +1,12 @@
 services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      platform:
+        condition: service_started
+
   platform:
     build: .
     env_file:
