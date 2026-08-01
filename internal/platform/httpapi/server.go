@@ -135,7 +135,7 @@ func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
 			Password string `json:"password"`
 			ClientID string `json:"clientid"`
 		}
-		if err := readJSON(request, &input); err != nil {
+		if err := readJSONLoose(request, &input); err != nil {
 			writeError(writer, http.StatusBadRequest, err)
 			return
 		}
@@ -168,7 +168,7 @@ func (s *Server) handleEMQX(writer http.ResponseWriter, request *http.Request) {
 			DeviceID  string `json:"device_id"`
 			Timestamp int64  `json:"timestamp"`
 		}
-		if err := readJSON(request, &input); err != nil {
+		if err := readJSONLoose(request, &input); err != nil {
 			writeError(writer, http.StatusBadRequest, err)
 			return
 		}
@@ -543,7 +543,7 @@ func (s *Server) handleRules(writer http.ResponseWriter, request *http.Request, 
 }
 
 func (s *Server) handleAlarms(writer http.ResponseWriter, request *http.Request, rest []string) {
-	if len(rest) == 1 && request.Method == http.MethodPut && rest[0] != "" {
+	if (len(rest) == 1 || len(rest) == 2 && rest[1] == "resolve") && request.Method == http.MethodPut && rest[0] != "" {
 		var input struct {
 			Note string `json:"note"`
 		}
@@ -568,7 +568,8 @@ func (s *Server) handleAlarms(writer http.ResponseWriter, request *http.Request,
 	page, pageSize := pagination(request)
 	alarms, meta, err := s.repos.Alarms.ListAlarms(request.Context(), repository.AlarmFilter{
 		DeviceID: request.URL.Query().Get("device_id"), ProductKey: request.URL.Query().Get("product_key"),
-		Status: domain.AlarmStatus(request.URL.Query().Get("status")), Page: page, PageSize: pageSize,
+		Status: domain.AlarmStatus(request.URL.Query().Get("status")), From: unixTime(request.URL.Query().Get("from")),
+		To: unixTime(request.URL.Query().Get("to")), Page: page, PageSize: pageSize,
 	})
 	if err != nil {
 		writeRepositoryError(writer, err)
@@ -580,6 +581,14 @@ func (s *Server) handleAlarms(writer http.ResponseWriter, request *http.Request,
 func readJSON(request *http.Request, target any) error {
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
 	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	return nil
+}
+
+func readJSONLoose(request *http.Request, target any) error {
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}

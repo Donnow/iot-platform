@@ -1,0 +1,63 @@
+services:
+  platform:
+    build: .
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      emqx:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      tdengine:
+        condition: service_started
+
+  emqx:
+    image: emqx/emqx:5.8.8
+    environment:
+      EMQX_NODE__COOKIE: iot-perform-cookie
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: public
+    ports:
+      - "1883:1883"
+      - "18083:18083"
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: iot
+      POSTGRES_USER: iot
+      POSTGRES_PASSWORD: iot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iot -d iot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  tdengine:
+    image: tdengine/tdengine:3.3.6.0
+    volumes:
+      - tdengine-data:/var/lib/taos
+
+volumes:
+  postgres-data:
+  redis-data:
+  tdengine-data:

@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -84,5 +85,50 @@ func TestSetLifecycle(t *testing.T) {
 	device, err := store.GetDevice(ctx, "d1")
 	if err != nil || device.Status != domain.DeviceStatusOnline {
 		t.Fatalf("device=%#v err=%v", device, err)
+	}
+}
+
+func TestTelemetryValidationAndRuleDuration(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	min, max := 0.0, 100.0
+	_, _ = store.CreateProduct(ctx, domain.Product{ProductKey: "pk", Name: "P", Properties: []domain.Property{{
+		Name: "temperature", DataType: domain.PropertyTypeFloat, MinValue: &min, MaxValue: &max,
+	}}})
+	_, _ = store.CreateDevice(ctx, domain.Device{DeviceID: "d1", ProductKey: "pk", Name: "D"})
+	_, _ = store.CreateRule(ctx, domain.Rule{ID: "r1", ProductKey: "pk", Name: "hot", PropertyName: "temperature", Operator: ">", Threshold: 40, DurationSeconds: 10, Enabled: true})
+	service := NewServiceWithClient(nil, store.Repositories(), nil)
+
+	for _, ts := range []int64{1000000, 1005000} {
+		if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(fmt.Sprintf(`{"ts":%d,"values":{"temperature":41}}`, ts))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alarms, _, err := store.ListAlarms(ctx, repository.AlarmFilter{DeviceID: "d1"})
+	if err != nil || len(alarms) != 0 {
+		t.Fatalf("alarms before duration=%#v err=%v", alarms, err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(`{"ts":1010000,"values":{"temperature":41}}`)); err != nil {
+		t.Fatal(err)
+	}
+	alarms, _, err = store.ListAlarms(ctx, repository.AlarmFilter{DeviceID: "d1"})
+	if err != nil || len(alarms) != 1 {
+		t.Fatalf("alarms after duration=%#v err=%v", alarms, err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(`{"ts":1011000,"values":{"temperature":20}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(`{"ts":1012000,"values":{"temperature":41}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(`{"ts":1022000,"values":{"temperature":41}}`)); err != nil {
+		t.Fatal(err)
+	}
+	alarms, _, err = store.ListAlarms(ctx, repository.AlarmFilter{ProductKey: "pk"})
+	if err != nil || len(alarms) != 2 {
+		t.Fatalf("alarms after reset=%#v err=%v", alarms, err)
+	}
+	if err := service.ProcessMessage(ctx, "devices/pk/d1/telemetry", []byte(`{"ts":1023000,"values":{"temperature":101}}`)); err == nil {
+		t.Fatal("out-of-range telemetry should be rejected")
 	}
 }

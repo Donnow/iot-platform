@@ -99,8 +99,14 @@ type Service struct {
 	client  *Client
 	logger  *slog.Logger
 	metrics Metrics
+	rules   map[string]ruleState
 
 	mu sync.Mutex
+}
+
+type ruleState struct {
+	startedAt time.Time
+	triggered bool
 }
 
 type Metrics interface {
@@ -122,7 +128,7 @@ func NewServiceWithMetrics(config Config, repos repository.Repositories, logger 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger, metrics: metrics}, nil
+	return &Service{repos: repos, client: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}, nil
 }
 
 func NewServiceWithClient(client *Client, repos repository.Repositories, logger *slog.Logger) *Service {
@@ -133,7 +139,7 @@ func NewServiceWithClientAndMetrics(client *Client, repos repository.Repositorie
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repos: repos, client: client, logger: logger, metrics: metrics}
+	return &Service{repos: repos, client: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
 }
 
 func (s *Service) Start(ctx context.Context) error {
@@ -194,6 +200,15 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 			return err
 		}
 		sample := domain.Telemetry{ProductKey: productKey, DeviceID: deviceID, Timestamp: time.UnixMilli(input.TS).UTC(), Values: input.Values}
+		if s.repos.Products != nil {
+			product, err := s.repos.Products.GetProductByKey(ctx, productKey)
+			if err != nil {
+				return err
+			}
+			if err := validateTelemetry(product, input.Values); err != nil {
+				return err
+			}
+		}
 		if err := s.repos.Telemetry.AppendTelemetry(ctx, sample); err != nil {
 			return err
 		}
@@ -292,7 +307,8 @@ func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) er
 		return err
 	}
 	for _, rule := range rules {
-		if !rule.Enabled || !matches(rule.Operator, sample.Values[rule.PropertyName], rule.Threshold) {
+		matched := rule.Enabled && matches(rule.Operator, sample.Values[rule.PropertyName], rule.Threshold)
+		if !s.shouldTrigger(sample.DeviceID, rule, matched, sample.Timestamp) {
 			continue
 		}
 		if s.metrics != nil {
@@ -307,6 +323,76 @@ func (s *Service) evaluateRules(ctx context.Context, sample domain.Telemetry) er
 		}
 		if s.metrics != nil {
 			s.metrics.IncAlarmsCreated()
+		}
+	}
+	return nil
+}
+
+func (s *Service) shouldTrigger(deviceID string, rule domain.Rule, matched bool, at time.Time) bool {
+	key := deviceID + "\x00" + rule.ID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !matched {
+		delete(s.rules, key)
+		return false
+	}
+	state, exists := s.rules[key]
+	if !exists {
+		state = ruleState{startedAt: at}
+	}
+	if rule.DurationSeconds > 0 && at.Sub(state.startedAt) < time.Duration(rule.DurationSeconds)*time.Second {
+		s.rules[key] = state
+		return false
+	}
+	if state.triggered {
+		return false
+	}
+	state.triggered = true
+	s.rules[key] = state
+	return true
+}
+
+func validateTelemetry(product domain.Product, values map[string]any) error {
+	if len(product.Properties) == 0 {
+		return nil
+	}
+	properties := make(map[string]domain.Property, len(product.Properties))
+	for _, property := range product.Properties {
+		properties[property.Name] = property
+	}
+	for name, raw := range values {
+		property, ok := properties[name]
+		if !ok {
+			return fmt.Errorf("telemetry property %q is not defined", name)
+		}
+		switch property.DataType {
+		case domain.PropertyTypeInt:
+			value, ok := numberValue(raw)
+			if !ok || value != float64(int64(value)) {
+				return fmt.Errorf("telemetry property %q must be an integer", name)
+			}
+		case domain.PropertyTypeFloat:
+			if _, ok := numberValue(raw); !ok {
+				return fmt.Errorf("telemetry property %q must be a number", name)
+			}
+		case domain.PropertyTypeBool:
+			if _, ok := raw.(bool); !ok {
+				return fmt.Errorf("telemetry property %q must be a boolean", name)
+			}
+		case domain.PropertyTypeString:
+			if _, ok := raw.(string); !ok {
+				return fmt.Errorf("telemetry property %q must be a string", name)
+			}
+		default:
+			return fmt.Errorf("telemetry property %q has unsupported type %q", name, property.DataType)
+		}
+		if value, ok := numberValue(raw); ok {
+			if property.MinValue != nil && value < *property.MinValue {
+				return fmt.Errorf("telemetry property %q is below minimum", name)
+			}
+			if property.MaxValue != nil && value > *property.MaxValue {
+				return fmt.Errorf("telemetry property %q is above maximum", name)
+			}
 		}
 	}
 	return nil

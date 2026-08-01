@@ -337,6 +337,12 @@ func (s *Store) ListAlarms(ctx context.Context, filter repository.AlarmFilter) (
 	s.mu.RLock()
 	alarms := make([]domain.Alarm, 0, len(s.alarms))
 	for _, alarm := range s.alarms {
+		if filter.ProductKey != "" {
+			device, exists := s.devices[alarm.DeviceID]
+			if !exists || device.ProductKey != filter.ProductKey {
+				continue
+			}
+		}
 		if filter.DeviceID != "" && alarm.DeviceID != filter.DeviceID {
 			continue
 		}

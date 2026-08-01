@@ -11,10 +11,12 @@ docs/
 │   └── iot-platform-srs.md
 ├── design/                           # 架构和关键技术设计
 ├── api/                              # HTTP、MQTT 和内部接口契约
+│   └── backend-api.md
 ├── testing/                          # 测试计划、测试合同和验收记录
 │   └── device-simulator-test-plan.md
 └── operations/                       # 部署、配置、运行手册和压测报告
-    └── device-simulator.md
+    ├── device-simulator.md
+    └── platform.md
 ```
 
 当前已建立需求基线和设备模拟器测试合同；其他目录在产生对应内容时再创建，避免提交空目录。
@@ -26,6 +28,8 @@ docs/
 | [IoT 平台需求规格说明书](requirements/iot-platform-srs.md) | 产品范围、功能需求、协议规范和里程碑基线 | Baseline |
 | [设备模拟器测试合同](testing/device-simulator-test-plan.md) | 模拟器的行为、协议、联调和压力验收标准 | Draft |
 | [设备模拟器运行手册](operations/device-simulator.md) | 模拟器启动、凭据、压力模式和重连说明 | Draft |
+| [后端接口与消息契约](api/backend-api.md) | HTTP、MQTT、EMQX 内部回调和当前实现边界 | Draft |
+| [后端平台运行手册](operations/platform.md) | Compose 启动、健康检查、指标和排障 | Draft |
 
 ## 命名和编排规范
 

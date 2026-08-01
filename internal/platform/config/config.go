@@ -11,6 +11,9 @@ import (
 type Config struct {
 	HTTPAddr       string
 	MQTTBrokerURL  string
+	MQTTClientID   string
+	MQTTUsername   string
+	MQTTPassword   string
 	DatabaseURL    string
 	RedisAddr      string
 	TDengineURL    string
@@ -22,6 +25,7 @@ func Default() Config {
 	return Config{
 		HTTPAddr:       ":8080",
 		MQTTBrokerURL:  "tcp://localhost:1883",
+		MQTTClientID:   "iot-platform",
 		DatabaseURL:    "postgres://iot:iot@localhost:5432/iot?sslmode=disable",
 		RedisAddr:      "localhost:6379",
 		TDengineURL:    "http://localhost:6041",
@@ -37,6 +41,15 @@ func FromEnv() Config {
 	}
 	if value := os.Getenv("IOT_MQTT_BROKER_URL"); value != "" {
 		c.MQTTBrokerURL = value
+	}
+	if value := os.Getenv("IOT_MQTT_CLIENT_ID"); value != "" {
+		c.MQTTClientID = value
+	}
+	if value := os.Getenv("IOT_MQTT_USERNAME"); value != "" {
+		c.MQTTUsername = value
+	}
+	if value := os.Getenv("IOT_MQTT_PASSWORD"); value != "" {
+		c.MQTTPassword = value
 	}
 	if value := os.Getenv("IOT_DATABASE_URL"); value != "" {
 		c.DatabaseURL = value
@@ -64,6 +77,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.MQTTBrokerURL) == "" {
 		return errors.New("MQTT broker URL is required")
+	}
+	if strings.TrimSpace(c.MQTTClientID) == "" {
+		return errors.New("MQTT client ID is required")
 	}
 	if strings.TrimSpace(c.DatabaseURL) == "" {
 		return errors.New("database URL is required")
