@@ -42,6 +42,7 @@ docs/
 | [平台业务逻辑详解](design/business-logic.md) | 全部业务流程、状态机、消息契约与容错机制 | Baseline |
 | [问题记录与排障总结](operations/issues-encountered.md) | 开发与验证中遇到的问题：现象、根因、解决方案 | Baseline |
 | [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
+| [压测排障复盘](operations/load-test-debugging.md) | 压测方法论、排障过程、Bug 根因与修复思路（面试素材） | Baseline |
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
 `http://localhost:8080/openapi.yaml`。嵌入式契约位于
