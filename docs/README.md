@@ -44,6 +44,7 @@ docs/
 | [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
 | [压测排障复盘](operations/load-test-debugging.md) | 压测方法论、排障过程、Bug 根因与修复思路（面试素材） | Baseline |
 | [登录端点开发复盘](operations/login-endpoint-development.md) | 认证设计决策、接线踩坑、三层验证链（面试素材） | Baseline |
+| [CI 流水线搭建复盘](operations/ci-pipeline-development.md) | CI 分层设计、测试依赖审计、首次运行结果与 L3 路线 | Baseline |
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
 `http://localhost:8080/openapi.yaml`。嵌入式契约位于
