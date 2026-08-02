@@ -1,0 +1,158 @@
+# IoT 设备接入与管理平台（智慧园区）
+
+基于 **EMQX + Go + TDengine** 的物联网设备接入与管理平台：覆盖设备接入认证、物模型遥测、规则告警、设备影子、指令下发、OTA 升级全链路，自带千台设备模拟器与 Vue3 运维控制台。单机 `docker compose up` 即可完整运行。
+
+## 亮点
+
+- **全链路可运行**：MQTT 接入 → 时序存储 → 实时控制台，一条龙，Compose 一键起，可现场演示
+- **一机一密动态认证**：设备密钥由平台签发，EMQX HTTP 认证/授权与平台联动，设备级 topic ACL
+- **设备影子**：desired/reported 分离 + version 乐观锁；设备重连自动补发影子与未完成 OTA 任务
+- **物模型驱动**：遥测按产品物模型校验后才落库，TDengine 超级表/子表 + 降采样聚合查询
+- **文档完备**：SRS、架构、业务逻辑、API 契约、测试计划、排障记录（15 个真实问题）齐备
+- **质量习惯**：分层结构、单元测试 + 进程内集成测试、Prometheus 指标、结构化日志
+
+## 架构
+
+```mermaid
+flowchart LR
+  SIM[设备模拟器<br/>Go · 1000 台] -->|MQTT QoS1| EMQX[EMQX 5]
+  UI[Vue3 运维控制台] -->|JWT HTTP| API[Go 平台服务]
+  EMQX -->|HTTP 认证 / ACL / 生命周期| API
+  EMQX -->|共享订阅| API
+  API --> PG[(PostgreSQL 16)]
+  API --> R[(Redis 7)]
+  API --> TD[(TDengine 3.x)]
+  API -->|指令 / 影子 / OTA| EMQX
+```
+
+## 核心功能
+
+| 模块 | 说明 |
+| --- | --- |
+| 产品与物模型 | 产品、属性定义（类型/单位/范围），设备注册即签发密钥 |
+| 设备接入 | MQTT 一机一密认证、心跳 + 遗嘱上下线检测、设备级 topic ACL |
+| 遥测链路 | 物模型校验 → TDengine 落库，支持区间查询、1m/5m/1h 降采样、最新值快照 |
+| 规则与告警 | 条件规则命中产生告警，支持解除 |
+| 设备影子 | desired/reported 分离、version 乐观锁；在线直发、离线缓存、重连补发 |
+| 指令下发 | 命令 topic + 设备异步 ack，超时惰性标记 |
+| OTA 升级 | 固件元数据登记、任务创建、设备阶段上报（downloading/installing/success） |
+| 运维控制台 | Vue3 + ECharts：设备/产品/告警/固件管理、实时数据查看 |
+| 可观测性 | `/metrics` Prometheus 指标（HTTP/MQTT/规则/告警计数器）、JSON 结构化日志 |
+
+## 技术栈
+
+| 组件 | 用途 | 为什么选它 |
+| --- | --- | --- |
+| EMQX 5.x | MQTT Broker | 一机一密动态认证、设备级 ACL、生命周期事件开箱即用；Erlang/OTP 架构，百万连接级 |
+| Go 1.24（标准库 net/http） | 平台服务 | 分层单体：接入网关 + HTTP API + 仓储层，模块边界清晰、面试易讲透 |
+| PostgreSQL 16 | 权威存储 | 产品/设备/影子/指令/OTA 元数据，jsonb 适配物模型与影子结构 |
+| Redis 7 | 状态缓存 | 在线状态 TTL（下线自动过期）+ 影子缓存，Redis 不可用时 PostgreSQL 兜底 |
+| TDengine 3.x | 时序存储 | 超级表/子表、降采样聚合、SQL 兼容、Docker 一键启动 |
+| Vue 3 + ECharts | 运维控制台 | SPA + 实时曲线，nginx 反代 `/api` 无跨域问题 |
+| Docker Compose | 部署 | 单机一键演示，面试可当场跑 |
+
+## 快速开始
+
+```bash
+cp .env.example .env          # 修改 IOT_JWT_SECRET 为至少 16 字符的随机值
+docker compose up --build -d
+curl -fsS http://localhost:8080/healthz   # {"status":"ok"}
+```
+
+| 入口 | 地址 |
+| --- | --- |
+| 运维控制台 | http://localhost:3000 |
+| 平台 API / Swagger UI | http://localhost:8080 / http://localhost:8080/docs |
+| EMQX Dashboard | http://localhost:18083（admin / public） |
+| MQTT / MQTT over WebSocket | 1883 / 8083 |
+
+### 最小演示：设备上报遥测
+
+```bash
+# 1. 签发测试 JWT（API 暂未提供登录端点，本地签发；见 scripts/make-jwt.sh）
+TOKEN=$(IOT_JWT_SECRET=<你在 .env 设置的密钥> ./scripts/make-jwt.sh)
+
+# 2. 创建产品（记下返回的 product_key，或直接指定）
+curl -s -X POST http://localhost:8080/api/products \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"温度传感器","device_type":"sensor","product_key":"temperature",
+       "properties":[{"name":"温度","data_type":"float","unit":"℃"}]}'
+
+# 3. 注册设备（响应中包含 device_secret，一机一密）
+curl -s -X POST http://localhost:8080/api/devices \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"product_key":"temperature","name":"会议室温度计","device_id":"temp-001"}'
+
+# 4. 写入设备凭据并启动模拟器
+cat > /tmp/devices.json <<'EOF'
+[{"device_id":"temp-001","device_secret":"<上一步返回的 device_secret>"}]
+EOF
+go run ./cmd/devicesim -credentials /tmp/devices.json \
+  -product-key temperature -type temperature -count 1 -interval 5s
+
+# 5. 打开 http://localhost:3000 查看设备上线与实时曲线；
+#    接口细节见 http://localhost:8080/docs
+```
+
+设备类型：`temperature` / `smoke` / `door` / `air-conditioner`，完整行为见 [docs/operations/device-simulator.md](docs/operations/device-simulator.md)。
+
+### 面试演示剧本
+
+1. 控制台设备页看到设备上线，实时曲线 5 秒一条
+2. 影子同步：修改影子 desired → 在线设备直发，断开重连后自动补发
+3. 指令下发：门禁设备收到 open/close，空调收到 setTemp 后温度逐步收敛
+4. 告警：烟感 smoke_level 越过阈值产生 alarm 事件
+5. OTA：登记固件 → 创建任务 → 模拟器上报 downloading → installing → success
+
+## 测试
+
+```bash
+go test ./...                      # 后端单元测试 + 进程内集成测试
+cd frontend && npm ci && npm test  # 前端 api 层测试（vitest）
+```
+
+## 压力测试
+
+- 模拟器内置 stress 模式：1000 台设备、每台 5 秒一报（`go run ./cmd/devicesim -stress -count 1000 -interval 5s ...`）
+- 一键脚本：[scripts/load-test.sh](scripts/load-test.sh)（参数化设备数/时长/并发，输出汇总指标）
+- SRS 定义的目标：1000 设备在线、5000 msg/s、遥测写入 P99 < 100ms
+- 运行记录模板见 [docs/operations/load-test.md](docs/operations/load-test.md)（当前为"脚本就绪、待实测"状态，实测结果会回填该文档）
+
+## 目录结构
+
+```text
+cmd/platform/          # 平台服务入口（HTTP + MQTT 消费）
+cmd/devicesim/         # 设备模拟器（4 种设备行为 + stress 模式）
+internal/platform/     # 平台：httpapi / mqtt / storage / memory / domain / observability
+internal/devicesim/    # 模拟器实现
+frontend/              # Vue3 运维控制台
+migrations/            # PostgreSQL schema
+scripts/               # emqx-init / make-jwt / load-test
+docs/                  # 需求、设计、API 契约、测试、运维文档
+```
+
+## 文档
+
+文档齐全，从 [docs/README.md](docs/README.md) 进入。重点推荐：
+
+- [需求规格说明书（SRS）](docs/requirements/iot-platform-srs.md) — 产品范围、MQTT topic 规范、验收基线
+- [业务逻辑详解](docs/design/business-logic.md) — 状态机、消息契约、容错机制（Baseline）
+- [问题记录与排障](docs/operations/issues-encountered.md) — 15 个真实问题：现象/根因/解决（Baseline）
+- [后端接口与消息契约](docs/api/backend-api.md) / [OpenAPI](docs/api/openapi.yaml)
+
+## 已知限制
+
+记录在 [docs/design/business-logic.md §7](docs/design/business-logic.md)：
+
+- 设备密钥明文存储（未加盐哈希）；`/internal/*` 回调无 IP 白名单（依赖部署层限制）
+- JWT 无角色区分；API 暂未提供登录端点（本地用 `scripts/make-jwt.sh` 签发）
+- 快照查询未走 Redis 缓存；规则/产品缺少更新、删除接口
+- 告警条件恢复不自动解除（需手动解除）
+
+## Roadmap
+
+- [ ] 登录端点（管理员账号 + 角色区分）
+- [ ] 完成 1000 设备压测并回填 load-test.md
+- [ ] 遥测链路引入 Kafka 削峰（当前 EMQX → 平台直连消费，设备规模上来后需要）
+- [ ] 规则 CRUD 与告警自动恢复
+- [ ] 设备密钥加盐哈希存储
