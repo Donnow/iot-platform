@@ -154,11 +154,12 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 
 ## 文档
 
-文档齐全，从 [docs/README.md](docs/README.md) 进入。重点推荐：
+文档齐全，从 [docs/README.md](docs/README.md) 进入。**开发历程先看
+[docs/TIMELINE.md](docs/TIMELINE.md)**（按时间线编号的阶段总览）。重点推荐：
 
 - [需求规格说明书（SRS）](docs/requirements/iot-platform-srs.md) — 产品范围、MQTT topic 规范、验收基线
 - [业务逻辑详解](docs/design/business-logic.md) — 状态机、消息契约、容错机制（Baseline）
-- [问题记录与排障](docs/operations/issues-encountered.md) — 15 个真实问题：现象/根因/解决（Baseline）
+- [问题记录与排障](docs/operations/issues-encountered.md) — 17 个真实问题：现象/根因/解决（Baseline）
 - [后端接口与消息契约](docs/api/backend-api.md) / [OpenAPI](docs/api/openapi.yaml)
 
 ## 已知限制

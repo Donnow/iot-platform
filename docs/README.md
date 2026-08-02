@@ -29,22 +29,26 @@ docs/
 
 ## 文档索引
 
-| 文档 | 用途 | 状态 |
-| --- | --- | --- |
-| [IoT 平台需求规格说明书](requirements/iot-platform-srs.md) | 产品范围、功能需求、协议规范和里程碑基线 | Baseline |
-| [设备模拟器测试合同](testing/device-simulator-test-plan.md) | 模拟器的行为、协议、联调和压力验收标准 | Draft |
-| [后端测试计划](testing/backend-test-plan.md) | 后端单元、进程内集成和运行时校验 | Draft |
-| [设备模拟器运行手册](operations/device-simulator.md) | 模拟器启动、凭据、压力模式和重连说明 | Draft |
-| [后端接口与消息契约](api/backend-api.md) | HTTP、MQTT、EMQX 内部回调和当前实现边界 | Draft |
-| [OpenAPI 契约](api/openapi.yaml) | 可导入 Swagger UI 的 HTTP 接口定义 | Review |
-| [后端平台运行手册](operations/platform.md) | Compose 启动、健康检查、指标和排障 | Draft |
-| [平台架构](design/architecture.md) | 运行拓扑、数据职责和启动模式 | Draft |
-| [平台业务逻辑详解](design/business-logic.md) | 全部业务流程、状态机、消息契约与容错机制 | Baseline |
-| [问题记录与排障总结](operations/issues-encountered.md) | 开发与验证中遇到的问题：现象、根因、解决方案 | Baseline |
-| [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
-| [压测排障复盘](operations/load-test-debugging.md) | 压测方法论、排障过程、Bug 根因与修复思路（面试素材） | Baseline |
-| [登录端点开发复盘](operations/login-endpoint-development.md) | 认证设计决策、接线踩坑、三层验证链（面试素材） | Baseline |
-| [CI 流水线搭建复盘](operations/ci-pipeline-development.md) | CI 分层设计、测试依赖审计、首次运行结果与 L3 路线 | Baseline |
+> **看时间线先看 [TIMELINE.md](TIMELINE.md)**——按时间顺序记录每个阶段的
+> 产出与文档链接，面试前扫一篇即可讲完整故事线。
+
+| # | 时间 | 文档 | 用途 | 状态 |
+| --- | --- | --- | --- | --- |
+| — | — | [TIMELINE.md](TIMELINE.md) | 项目开发历程时间线总览 | Baseline |
+| 01 | 08-01 | [IoT 平台需求规格说明书](requirements/iot-platform-srs.md) | 产品范围、功能需求、协议规范和里程碑基线 | Baseline |
+| 02 | 08-01 | [设备模拟器测试合同](testing/device-simulator-test-plan.md) | 模拟器的行为、协议、联调和压力验收标准 | Draft |
+| 03 | 08-01 | [后端测试计划](testing/backend-test-plan.md) | 后端单元、进程内集成和运行时校验 | Draft |
+| 04 | 08-01 | [设备模拟器运行手册](operations/device-simulator.md) | 模拟器启动、凭据、压力模式和重连说明 | Draft |
+| 05 | 08-01 | [后端接口与消息契约](api/backend-api.md) | HTTP、MQTT、EMQX 内部回调和当前实现边界 | Draft |
+| 06 | 08-01 | [OpenAPI 契约](api/openapi.yaml) | 可导入 Swagger UI 的 HTTP 接口定义 | Review |
+| 07 | 08-01 | [后端平台运行手册](operations/platform.md) | Compose 启动、健康检查、指标和排障 | Draft |
+| 08 | 08-01 | [平台架构](design/architecture.md) | 运行拓扑、数据职责和启动模式 | Draft |
+| 09 | 08-02 | [平台业务逻辑详解](design/business-logic.md) | 全部业务流程、状态机、消息契约与容错机制 | Baseline |
+| 10 | 08-02 | [问题记录与排障总结](operations/issues-encountered.md) | 开发与验证中遇到的问题：现象、根因、解决方案（17 条） | Baseline |
+| 11 | 08-03 | [压力测试运行记录](operations/load-test.md) | 可复现的 1000 设备压测命令和结果记录 | Draft |
+| 12 | 08-03 | [压测排障复盘](operations/load-test-debugging.md) | 压测方法论、排障过程、Bug 根因与修复思路（面试素材） | Baseline |
+| 13 | 08-03 | [登录端点开发复盘](operations/login-endpoint-development.md) | 认证设计决策、接线踩坑、三层验证链（面试素材） | Baseline |
+| 14 | 08-03 | [CI 流水线搭建复盘](operations/ci-pipeline-development.md) | CI 分层设计、测试依赖审计、首次运行结果与 L3 路线 | Baseline |
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
 `http://localhost:8080/openapi.yaml`。嵌入式契约位于
