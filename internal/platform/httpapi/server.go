@@ -71,6 +71,12 @@ type Server struct {
 	authorizer Authorizer
 	metrics    *observability.Metrics
 	hooks      InternalHooks
+
+	// JWTSecret and JWTTTL enable the login endpoint; when unset the
+	// endpoint responds 501 (tests and deployments that rely on external
+	// token issuance are unaffected).
+	JWTSecret []byte
+	JWTTTL    time.Duration
 }
 
 func NewServer(repos repository.Repositories, publisher messaging.Publisher, authorizer Authorizer) *Server {
@@ -110,6 +116,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if strings.HasPrefix(request.URL.Path, "/internal/emqx/") {
 		s.handleEMQX(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/auth/login" && request.Method == http.MethodPost {
+		s.handleLogin(writer, request)
 		return
 	}
 	if err := s.authorizer.Authorize(request); err != nil {

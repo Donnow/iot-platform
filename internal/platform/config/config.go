@@ -23,6 +23,9 @@ type Config struct {
 	TDengineUser     string
 	TDenginePassword string
 	JWTSecret        string
+	JWTTTLSeconds    int
+	AdminUsername    string
+	AdminPassword    string
 	RequestTimeout   int
 }
 
@@ -37,6 +40,9 @@ func Default() Config {
 		RedisDB:        0,
 		TDengineURL:    "http://localhost:6041",
 		JWTSecret:      "change-me-in-production",
+		JWTTTLSeconds:  3600,
+		AdminUsername:  "admin",
+		AdminPassword:  "admin123456",
 		RequestTimeout: 10,
 	}
 }
@@ -87,6 +93,17 @@ func FromEnv() Config {
 	if value := os.Getenv("IOT_JWT_SECRET"); value != "" {
 		c.JWTSecret = value
 	}
+	if value := os.Getenv("IOT_JWT_TTL_SECONDS"); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil {
+			c.JWTTTLSeconds = seconds
+		}
+	}
+	if value := os.Getenv("IOT_ADMIN_USERNAME"); value != "" {
+		c.AdminUsername = value
+	}
+	if value := os.Getenv("IOT_ADMIN_PASSWORD"); value != "" {
+		c.AdminPassword = value
+	}
 	if value := os.Getenv("IOT_REQUEST_TIMEOUT_SECONDS"); value != "" {
 		if seconds, err := strconv.Atoi(value); err == nil {
 			c.RequestTimeout = seconds
@@ -123,8 +140,14 @@ func (c Config) Validate() error {
 	if len(c.JWTSecret) < 16 {
 		return fmt.Errorf("JWT secret must be at least 16 characters")
 	}
+	if c.JWTTTLSeconds <= 0 {
+		return fmt.Errorf("JWT TTL must be positive")
+	}
+	if c.AdminUsername == "" || c.AdminPassword == "" {
+		return fmt.Errorf("admin username and password are required")
+	}
 	if c.RequestTimeout <= 0 {
-		return errors.New("request timeout must be greater than zero")
+		return fmt.Errorf("request timeout must be greater than zero")
 	}
 	return nil
 }

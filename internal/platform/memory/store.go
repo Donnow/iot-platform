@@ -23,6 +23,7 @@ var (
 type Store struct {
 	mu        sync.RWMutex
 	sequence  uint64
+	users     map[string]domain.User
 	products  map[string]domain.Product
 	devices   map[string]domain.Device
 	telemetry map[string][]domain.Telemetry
@@ -37,6 +38,7 @@ type Store struct {
 
 func New() *Store {
 	return &Store{
+		users:     make(map[string]domain.User),
 		products:  make(map[string]domain.Product),
 		devices:   make(map[string]domain.Device),
 		telemetry: make(map[string][]domain.Telemetry),
@@ -52,6 +54,7 @@ func New() *Store {
 
 func (s *Store) Repositories() repository.Repositories {
 	return repository.Repositories{
+		Users:     s,
 		Products:  s,
 		Devices:   s,
 		Telemetry: s,

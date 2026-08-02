@@ -1,5 +1,14 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- 管理员账号（登录端点 /api/auth/login 使用；密码为 bcrypt 哈希）
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(64) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'admin',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(64) NOT NULL,

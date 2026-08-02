@@ -49,6 +49,9 @@ const errorMessage = ref('')
 const toastMessage = ref('')
 const authRequired = ref(false)
 const tokenInput = ref(getAuthToken())
+const loginUsername = ref('')
+const loginPassword = ref('')
+const submitting = ref(false)
 const products = ref([])
 const devices = ref([])
 const alarms = ref([])
@@ -444,14 +447,33 @@ async function resolveAlarm(alarm) {
   }
 }
 
-function submitToken() {
-  setAuthToken(tokenInput.value)
-  authRequired.value = false
-  loadData()
+async function submitLogin() {
+  if (!loginUsername.value || !loginPassword.value) {
+    showToast('请输入用户名和密码')
+    return
+  }
+  submitting.value = true
+  try {
+    const result = await api.post('/api/auth/login', {
+      username: loginUsername.value,
+      password: loginPassword.value,
+    })
+    setAuthToken(result.token)
+    authRequired.value = false
+    loginPassword.value = ''
+    showToast(`已登录：${result.username || loginUsername.value}`)
+    loadData()
+  } catch (error) {
+    showToast(error.message || '登录失败')
+  } finally {
+    submitting.value = false
+  }
 }
 
 function clearToken() {
   tokenInput.value = ''
+  loginUsername.value = ''
+  loginPassword.value = ''
   setAuthToken('')
   authRequired.value = true
 }
@@ -602,7 +624,7 @@ onBeforeUnmount(() => {
 
     <div v-if="showOTAModal" class="modal-backdrop" @click.self="showOTAModal = false"><section class="modal"><div class="modal-heading"><div><span class="panel-kicker">OTA DEPLOYMENT</span><h2>创建升级任务</h2></div><button class="icon-button" title="关闭" @click="showOTAModal = false"><X :size="18" /></button></div><div class="form-grid"><label>所属产品<select v-model="otaForm.product_key"><option value="" disabled>选择产品</option><option v-for="product in products" :key="product.product_key" :value="product.product_key">{{ product.name }}</option></select></label><label>固件版本<select v-model="otaForm.firmware_id"><option value="" disabled>选择固件</option><option v-for="firmware in firmwares.filter((item) => item.product_key === otaForm.product_key)" :key="firmware.id" :value="firmware.id">{{ firmware.version }}</option></select></label><label>目标范围<select v-model="otaForm.target"><option value="all">产品下全部设备</option><option value="devices">指定设备</option></select></label><label v-if="otaForm.target === 'devices'" class="span-two">设备 ID（可用空格或逗号分隔）<textarea v-model="otaForm.target_device_ids" rows="3" placeholder="temp-001 temp-002"></textarea></label></div><div class="modal-actions"><button class="ghost-button" @click="showOTAModal = false">取消</button><button class="primary-button" @click="createOTATask"><Upload :size="16" />创建任务</button></div></section></div>
 
-    <div v-if="authRequired" class="modal-backdrop"><section class="modal auth-modal"><div class="auth-mark"><ShieldCheck :size="23" /></div><span class="eyebrow">SECURE ACCESS</span><h2>连接平台</h2><p>输入平台签发的 JWT 访问令牌，继续查看实时数据。</p><label>Bearer Token<input v-model="tokenInput" type="password" placeholder="eyJhbGciOiJIUzI1NiIs..." @keyup.enter="submitToken" /></label><div class="modal-actions"><button v-if="getAuthToken()" class="ghost-button" @click="clearToken">清除令牌</button><button class="primary-button" @click="submitToken"><KeyRound :size="16" />连接平台</button></div></section></div>
+    <div v-if="authRequired" class="modal-backdrop"><section class="modal auth-modal"><div class="auth-mark"><ShieldCheck :size="23" /></div><span class="eyebrow">SECURE ACCESS</span><h2>登录平台</h2><p>使用平台管理员账号登录，获取访问令牌。</p><label>用户名<input v-model="loginUsername" type="text" placeholder="admin" autocomplete="username" @keyup.enter="submitLogin" /></label><label>密码<input v-model="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" @keyup.enter="submitLogin" /></label><div class="modal-actions"><button v-if="getAuthToken()" class="ghost-button" @click="clearToken">退出登录</button><button class="primary-button" :disabled="submitting" @click="submitLogin"><KeyRound :size="16" />{{ submitting ? '登录中…' : '登录' }}</button></div></section></div>
 
     <div v-if="toastMessage" class="toast"><Check :size="16" />{{ toastMessage }}</div>
   </div>

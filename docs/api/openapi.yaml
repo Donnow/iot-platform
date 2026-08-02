@@ -18,6 +18,40 @@ paths:
       security: []
       summary: OpenAPI specification
       responses: {'200': {description: YAML specification}}
+  /api/auth/login:
+    post:
+      security: []
+      summary: Authenticate and obtain a JWT
+      description: >
+        Accepts {username, password} against the platform user store
+        (bcrypt) and returns an HS256 JWT valid for IOT_JWT_TTL_SECONDS.
+        Credential failures return a uniform 401 to avoid username
+        enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: {type: string, example: admin}
+                password: {type: string, example: '••••••••'}
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: {type: string}
+                  expires_in: {type: integer, description: Token TTL in seconds}
+                  role: {type: string, example: admin}
+                  username: {type: string}
+        '400': {description: Missing username or password}
+        '401': {description: Invalid credentials}
+        '501': {description: Login endpoint not configured}
   /api/products:
     get:
       summary: List products

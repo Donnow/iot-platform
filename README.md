@@ -69,8 +69,12 @@ curl -fsS http://localhost:8080/healthz   # {"status":"ok"}
 ### 最小演示：设备上报遥测
 
 ```bash
-# 1. 签发测试 JWT（API 暂未提供登录端点，本地签发；见 scripts/make-jwt.sh）
-TOKEN=$(IOT_JWT_SECRET=<你在 .env 设置的密钥> ./scripts/make-jwt.sh)
+# 1. 登录获取 JWT（首次启动已自动创建管理员，默认 admin / admin123456，
+#    部署前务必通过 IOT_ADMIN_USERNAME / IOT_ADMIN_PASSWORD 修改）
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123456"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
 # 2. 创建产品（记下返回的 product_key，或直接指定）
 curl -s -X POST http://localhost:8080/api/products \
@@ -160,13 +164,13 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 记录在 [docs/design/business-logic.md §7](docs/design/business-logic.md)：
 
 - 设备密钥明文存储（未加盐哈希）；`/internal/*` 回调无 IP 白名单（依赖部署层限制）
-- JWT 无角色区分；API 暂未提供登录端点（本地用 `scripts/make-jwt.sh` 签发）
+- 角色仅有 admin 一种（JWT 携带 role claim，但尚未做接口级权限分级）
 - 快照查询未走 Redis 缓存；规则/产品缺少更新、删除接口
 - 告警条件恢复不自动解除（需手动解除）
 
 ## Roadmap
 
-- [ ] 登录端点（管理员账号 + 角色区分）
+- [x] 登录端点（`POST /api/auth/login`，JWT 携带 role claim；角色分级待做）
 - [x] 完成 1000 台设备压测并回填 load-test.md（2026-08-03，见压力测试段落）
 - [ ] TDengine 超级表/子表改造（当前单表 ts 主键，同毫秒多设备上报相互覆盖）
 - [ ] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（支撑更高吞吐）

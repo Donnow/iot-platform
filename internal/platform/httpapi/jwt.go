@@ -12,6 +12,33 @@ import (
 	"time"
 )
 
+// IssueToken signs an HS256 JWT for the given username and role.
+// Used by the login endpoint; make-jwt.sh implements the same scheme.
+func IssueToken(secret []byte, username, role string, ttl time.Duration) (string, error) {
+	if len(secret) == 0 {
+		return "", errors.New("JWT secret is required")
+	}
+	if username == "" {
+		return "", errors.New("username is required")
+	}
+	encode := base64.RawURLEncoding.EncodeToString
+	now := time.Now().UTC()
+	header := encode([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	claims, err := json.Marshal(map[string]any{
+		"sub":  username,
+		"role": role,
+		"iat":  now.Unix(),
+		"exp":  now.Add(ttl).Unix(),
+	})
+	if err != nil {
+		return "", err
+	}
+	message := header + "." + encode(claims)
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(message))
+	return message + "." + encode(mac.Sum(nil)), nil
+}
+
 type JWTAuthorizer struct {
 	Secret []byte
 	Now    func() time.Time

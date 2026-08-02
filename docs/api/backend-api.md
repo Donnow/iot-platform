@@ -8,13 +8,26 @@
 
 ## HTTP
 
-除 `/healthz`、`/metrics` 和 `/internal/emqx/*` 外，`/api/*` 请求需要携带
+除 `/healthz`、`/metrics`、`/docs`、`/openapi.yaml`、`/api/auth/login` 和
+`/internal/emqx/*` 外，`/api/*` 请求需要携带
 `Authorization: Bearer <JWT>`。JWT 使用 HS256，签名密钥由 `IOT_JWT_SECRET` 提供。
 OpenAPI 原始文档为 `/openapi.yaml`，Swagger UI 为 `/docs`；两者均不需要 JWT，便于
 在部署环境中查看契约。
 
+### 认证
+
+- `POST /api/auth/login`：使用 `{username, password}` 换取 JWT。账号存储在
+  PostgreSQL `users` 表（密码为 bcrypt 哈希），首次启动时按
+  `IOT_ADMIN_USERNAME` / `IOT_ADMIN_PASSWORD` 自动创建管理员（已存在则跳过）。
+- 响应 `{token, expires_in, role, username}`；`expires_in` 由
+  `IOT_JWT_TTL_SECONDS` 控制（默认 3600）。
+- 凭据错误统一返回 `401 invalid credentials`（用户不存在与密码错误响应一致，
+  避免用户名枚举）；端点未配置（JWT 密钥/仓储缺失）返回 `501`。
+- 本地开发也可用 `scripts/make-jwt.sh` 直接签发测试令牌（压测脚本使用）。
+
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
+| POST | `/api/auth/login` | 登录并签发 JWT（无需携带令牌） |
 | POST | `/api/products` | 创建产品；未提供 `product_key` 时自动生成 |
 | GET | `/api/products?page=1&page_size=20` | 分页查询产品 |
 | POST | `/api/devices` | 注册设备并返回一次性 `device_secret` |

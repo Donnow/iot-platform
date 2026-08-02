@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"iot-perform/internal/platform/config"
+	"iot-perform/internal/platform/domain"
 	"iot-perform/internal/platform/httpapi"
 	"iot-perform/internal/platform/memory"
 	"iot-perform/internal/platform/mqtt"
@@ -41,6 +42,9 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	defer func() { _ = closeStore() }()
+	if err := ensureAdminUser(ctx, repos, cfg, logger); err != nil {
+		return err
+	}
 	metrics := observability.NewMetrics()
 	mqttService, err := mqtt.NewServiceWithMetrics(mqtt.Config{
 		BrokerURL: cfg.MQTTBrokerURL,
@@ -69,6 +73,8 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			Lifecycle: mqttService.SetLifecycle,
 		},
 	)
+	server.JWTSecret = []byte(cfg.JWTSecret)
+	server.JWTTTL = time.Duration(cfg.JWTTTLSeconds) * time.Second
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           server,
@@ -96,6 +102,31 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	defer cancel()
 	_ = mqttService.Stop(shutdownCtx)
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+func ensureAdminUser(ctx context.Context, repos repository.Repositories, cfg config.Config, logger *slog.Logger) error {
+	if repos.Users == nil {
+		return nil
+	}
+	if _, err := repos.Users.GetUserByUsername(ctx, cfg.AdminUsername); err == nil {
+		return nil // already bootstrapped on a previous start
+	} else if !errors.Is(err, repository.ErrNotFound) {
+		return err
+	}
+	hash, err := httpapi.HashPassword(cfg.AdminPassword)
+	if err != nil {
+		return err
+	}
+	user, err := repos.Users.CreateUser(ctx, domain.User{
+		Username:     cfg.AdminUsername,
+		PasswordHash: hash,
+		Role:         "admin",
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("bootstrapped admin user", "username", user.Username)
+	return nil
 }
 
 func openRepositories(ctx context.Context, cfg config.Config, logger *slog.Logger) (repository.Repositories, func() error, error) {

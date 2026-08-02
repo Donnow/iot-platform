@@ -239,7 +239,8 @@ GET /api/devices/{id}/commands/{command_id} 查询状态
 4. 规则/产品无更新、删除、启停接口
 5. 设备密钥明文存储与比对（未加盐哈希）
 6. `/internal/*` 回调无 IP 白名单（文档要求部署层限制）
-7. JWT 无角色区分（SRS 要求管理员/运维分级未实现）
+7. 角色仅有 admin 一种：`/api/auth/login` 签发的 JWT 携带 `role` claim，
+   但接口层未做分级校验（SRS 要求的管理员/运维分级未实现）
 8. EMQX 生命周期 webhook 端点保留，但本环境（OSS 规则引擎收不到 client 事件）由
    认证回调 + 遗嘱链路承担在线/离线检测；`emqx-init` 会幂等创建规则引擎桥接，
    供支持 Webhooks 的 EMQX 版本使用

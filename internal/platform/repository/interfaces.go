@@ -106,7 +106,13 @@ type OTARepository interface {
 	ListPendingOTA(context.Context, string) ([]domain.OTATask, error)
 }
 
+type UserRepository interface {
+	GetUserByUsername(context.Context, string) (domain.User, error)
+	CreateUser(context.Context, domain.User) (domain.User, error)
+}
+
 type Repositories struct {
+	Users     UserRepository
 	Products  ProductRepository
 	Devices   DeviceRepository
 	Telemetry TelemetryRepository

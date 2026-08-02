@@ -50,13 +50,18 @@ func New(ctx context.Context, config Config) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("ping Redis: %w", err)
 	}
-	td := NewTDengine(config.TDengineURL, config.TDengineUser, config.TDenginePassword)
-	if err := td.EnsureSchema(ctx); err != nil {
+	t := NewTDengine(config.TDengineURL, config.TDengineUser, config.TDenginePassword)
+	if err := t.EnsureSchema(ctx); err != nil {
 		_ = db.Close()
 		_ = rdb.Close()
 		return nil, fmt.Errorf("initialize TDengine: %w", err)
 	}
-	return &Store{db: db, redis: rdb, telemetry: td}, nil
+	if err := ensureUsersSchema(ctx, db); err != nil {
+		_ = db.Close()
+		_ = rdb.Close()
+		return nil, fmt.Errorf("initialize PostgreSQL users schema: %w", err)
+	}
+	return &Store{db: db, redis: rdb, telemetry: t}, nil
 }
 
 func NewWithDependencies(db *sql.DB, rdb *redis.Client, td *TDengine) *Store {
@@ -81,6 +86,7 @@ func (s *Store) Close() error {
 
 func (s *Store) Repositories() repository.Repositories {
 	return repository.Repositories{
+		Users:     s,
 		Products:  s,
 		Devices:   s,
 		Telemetry: s,
