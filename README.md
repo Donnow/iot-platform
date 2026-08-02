@@ -1,5 +1,7 @@
 # IoT 设备接入与管理平台（智慧园区）
 
+[![CI](https://github.com/Donnow/iot-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Donnow/iot-platform/actions/workflows/ci.yml)
+
 基于 **EMQX + Go + TDengine** 的物联网设备接入与管理平台：覆盖设备接入认证、物模型遥测、规则告警、设备影子、指令下发、OTA 升级全链路，自带千台设备模拟器与 Vue3 运维控制台。单机 `docker compose up` 即可完整运行。
 
 ## 亮点

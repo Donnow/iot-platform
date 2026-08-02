@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-test:
+    name: Backend (vet + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        # -count=1 禁用缓存;integration 测试有 //go:build integration tag,
+        # 默认不编译,需外部中间件(e2e)时显式 -tags integration 运行。
+        run: go test ./... -count=1
+
+  frontend-test:
+    name: Frontend (test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  docker-build:
+    name: Docker images (build check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build platform image
+        run: docker build -t iot-perform-platform:ci .
+      - name: Build frontend image
+        run: docker build -t iot-perform-frontend:ci ./frontend
+      # 镜像推送(GHCR)策略后置:tag 时推送,见 docs/operations/ci-pipeline-development.md
