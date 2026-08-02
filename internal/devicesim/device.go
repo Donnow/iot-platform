@@ -201,6 +201,19 @@ func (d *Device) runConnected(ctx context.Context) error {
 	if client == nil {
 		return errors.New("device is not connected")
 	}
+	// Stagger each device's ticker with a random phase offset so telemetry
+	// timestamps spread across milliseconds. Devices that start their
+	// tickers in lockstep emit identical payload ts values, and TDengine's
+	// ts primary key silently overwrites same-ts rows (observed during load
+	// testing: 10 devices -> only ~4 distinct ms per tick).
+	if d.random != nil {
+		offset := time.Duration(d.random.Float64()*1000) * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return d.Disconnect(ctx)
+		case <-d.clock.After(offset):
+		}
+	}
 	ticker := d.clock.NewTicker(d.interval)
 	defer ticker.Stop()
 	for {

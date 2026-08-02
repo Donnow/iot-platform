@@ -113,16 +113,31 @@ cd frontend && npm ci && npm test  # 前端 api 层测试（vitest）
 
 ## 压力测试
 
-- 模拟器内置 stress 模式：1000 台设备、每台 5 秒一报（`go run ./cmd/devicesim -stress -count 1000 -interval 5s ...`）
-- 一键脚本：[scripts/load-test.sh](scripts/load-test.sh)（参数化设备数/时长/并发，输出汇总指标）
-- SRS 定义的目标：1000 设备在线、5000 msg/s、遥测写入 P99 < 100ms
-- 运行记录模板见 [docs/operations/load-test.md](docs/operations/load-test.md)（当前为"脚本就绪、待实测"状态，实测结果会回填该文档）
+2026-08-03 完成 1000 台设备实测（macOS / OrbStack 单机 Compose）：
+
+| 指标 | 实测 |
+| --- | --- |
+| 在线设备 | 1001 台稳定 |
+| 上报速率 | 200 msg/s（1000 台 × 5s），平台 0 错误 |
+| TDengine 落库 | ~150 msg/s（75%，剩余被 ts 主键覆盖吸收，见下） |
+| 端到端延迟 | P50 11ms / P95 18ms / P99 18ms / max 25ms |
+
+压测暴露并修复了一个真实问题：模拟器所有设备 tick 相位同步，同一毫秒的
+payload `ts` 在 TDengine 单表 ts 主键下相互覆盖（修复前落库率仅 ~17%）。
+修复（ticker 随机相位偏移）后 10 台验证落库率 35% → 95%。完整记录与
+复现命令见 [docs/operations/load-test.md](docs/operations/load-test.md)，
+问题详情见 [docs/operations/issues-encountered.md](docs/operations/issues-encountered.md) #16/#17。
+
+工具：
+- [scripts/load-test.sh](scripts/load-test.sh)：一键注册设备 + 启动压测
+- [cmd/latencyprobe](cmd/latencyprobe/)：端到端延迟探针（发布 → 平台消费 → TDengine → 查询可见）
 
 ## 目录结构
 
 ```text
 cmd/platform/          # 平台服务入口（HTTP + MQTT 消费）
 cmd/devicesim/         # 设备模拟器（4 种设备行为 + stress 模式）
+cmd/latencyprobe/      # 端到端遥测延迟探针（压测工具）
 internal/platform/     # 平台：httpapi / mqtt / storage / memory / domain / observability
 internal/devicesim/    # 模拟器实现
 frontend/              # Vue3 运维控制台
@@ -152,7 +167,9 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 ## Roadmap
 
 - [ ] 登录端点（管理员账号 + 角色区分）
-- [ ] 完成 1000 设备压测并回填 load-test.md
-- [ ] 遥测链路引入 Kafka 削峰（当前 EMQX → 平台直连消费，设备规模上来后需要）
+- [x] 完成 1000 台设备压测并回填 load-test.md（2026-08-03，见压力测试段落）
+- [ ] TDengine 超级表/子表改造（当前单表 ts 主键，同毫秒多设备上报相互覆盖）
+- [ ] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（支撑更高吞吐）
+- [ ] 遥测链路引入 Kafka 削峰（设备规模上来后需要）
 - [ ] 规则 CRUD 与告警自动恢复
 - [ ] 设备密钥加盐哈希存储
