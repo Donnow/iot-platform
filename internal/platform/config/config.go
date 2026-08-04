@@ -9,41 +9,51 @@ import (
 )
 
 type Config struct {
-	StorageMode      string
-	HTTPAddr         string
-	MQTTBrokerURL    string
-	MQTTClientID     string
-	MQTTUsername     string
-	MQTTPassword     string
-	DatabaseURL      string
-	RedisAddr        string
-	RedisPassword    string
-	RedisDB          int
-	TDengineURL      string
-	TDengineUser     string
-	TDenginePassword string
-	JWTSecret        string
-	JWTTTLSeconds    int
-	AdminUsername    string
-	AdminPassword    string
-	RequestTimeout   int
+	StorageMode              string
+	HTTPAddr                 string
+	MQTTBrokerURL            string
+	MQTTClientID             string
+	MQTTUsername             string
+	MQTTPassword             string
+	DatabaseURL              string
+	RedisAddr                string
+	RedisPassword            string
+	RedisDB                  int
+	TDengineURL              string
+	TDengineUser             string
+	TDenginePassword         string
+	MQTTWorkers              int
+	MQTTQueueSize            int
+	TelemetryBatchSize       int
+	TelemetryBatchIntervalMS int
+	ProductCacheTTLSeconds   int
+	JWTSecret                string
+	JWTTTLSeconds            int
+	AdminUsername            string
+	AdminPassword            string
+	RequestTimeout           int
 }
 
 func Default() Config {
 	return Config{
-		StorageMode:    "persistent",
-		HTTPAddr:       ":8080",
-		MQTTBrokerURL:  "tcp://localhost:1883",
-		MQTTClientID:   "iot-platform",
-		DatabaseURL:    "postgres://iot:iot@localhost:5432/iot?sslmode=disable",
-		RedisAddr:      "localhost:6379",
-		RedisDB:        0,
-		TDengineURL:    "http://localhost:6041",
-		JWTSecret:      "change-me-in-production",
-		JWTTTLSeconds:  3600,
-		AdminUsername:  "admin",
-		AdminPassword:  "admin123456",
-		RequestTimeout: 10,
+		StorageMode:              "persistent",
+		HTTPAddr:                 ":8080",
+		MQTTBrokerURL:            "tcp://localhost:1883",
+		MQTTClientID:             "iot-platform",
+		DatabaseURL:              "postgres://iot:iot@localhost:5432/iot?sslmode=disable",
+		RedisAddr:                "localhost:6379",
+		RedisDB:                  0,
+		TDengineURL:              "http://localhost:6041",
+		MQTTWorkers:              4,
+		MQTTQueueSize:            1024,
+		TelemetryBatchSize:       200,
+		TelemetryBatchIntervalMS: 200,
+		ProductCacheTTLSeconds:   60,
+		JWTSecret:                "change-me-in-production",
+		JWTTTLSeconds:            3600,
+		AdminUsername:            "admin",
+		AdminPassword:            "admin123456",
+		RequestTimeout:           10,
 	}
 }
 
@@ -89,6 +99,31 @@ func FromEnv() Config {
 	}
 	if value := os.Getenv("IOT_TDENGINE_PASSWORD"); value != "" {
 		c.TDenginePassword = value
+	}
+	if value := os.Getenv("IOT_MQTT_WORKERS"); value != "" {
+		if workers, err := strconv.Atoi(value); err == nil {
+			c.MQTTWorkers = workers
+		}
+	}
+	if value := os.Getenv("IOT_MQTT_QUEUE_SIZE"); value != "" {
+		if size, err := strconv.Atoi(value); err == nil {
+			c.MQTTQueueSize = size
+		}
+	}
+	if value := os.Getenv("IOT_TELEMETRY_BATCH_SIZE"); value != "" {
+		if size, err := strconv.Atoi(value); err == nil {
+			c.TelemetryBatchSize = size
+		}
+	}
+	if value := os.Getenv("IOT_TELEMETRY_BATCH_INTERVAL_MS"); value != "" {
+		if interval, err := strconv.Atoi(value); err == nil {
+			c.TelemetryBatchIntervalMS = interval
+		}
+	}
+	if value := os.Getenv("IOT_PRODUCT_CACHE_TTL_SECONDS"); value != "" {
+		if ttl, err := strconv.Atoi(value); err == nil {
+			c.ProductCacheTTLSeconds = ttl
+		}
 	}
 	if value := os.Getenv("IOT_JWT_SECRET"); value != "" {
 		c.JWTSecret = value
@@ -136,6 +171,21 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.TDengineURL) == "" {
 		return errors.New("TDengine URL is required")
+	}
+	if c.MQTTWorkers <= 0 {
+		return errors.New("MQTT workers must be positive")
+	}
+	if c.MQTTQueueSize <= 0 {
+		return errors.New("MQTT queue size must be positive")
+	}
+	if c.TelemetryBatchSize <= 0 {
+		return errors.New("telemetry batch size must be positive")
+	}
+	if c.TelemetryBatchIntervalMS <= 0 {
+		return errors.New("telemetry batch interval must be positive")
+	}
+	if c.ProductCacheTTLSeconds <= 0 {
+		return errors.New("product cache TTL must be positive")
 	}
 	if len(c.JWTSecret) < 16 {
 		return fmt.Errorf("JWT secret must be at least 16 characters")

@@ -47,10 +47,15 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	metrics := observability.NewMetrics()
 	mqttService, err := mqtt.NewServiceWithMetrics(mqtt.Config{
-		BrokerURL: cfg.MQTTBrokerURL,
-		ClientID:  cfg.MQTTClientID,
-		Username:  cfg.MQTTUsername,
-		Password:  cfg.MQTTPassword,
+		BrokerURL:       cfg.MQTTBrokerURL,
+		ClientID:        cfg.MQTTClientID,
+		Username:        cfg.MQTTUsername,
+		Password:        cfg.MQTTPassword,
+		Workers:         cfg.MQTTWorkers,
+		QueueSize:       cfg.MQTTQueueSize,
+		BatchSize:       cfg.TelemetryBatchSize,
+		BatchInterval:   time.Duration(cfg.TelemetryBatchIntervalMS) * time.Millisecond,
+		ProductCacheTTL: time.Duration(cfg.ProductCacheTTLSeconds) * time.Second,
 	}, repos, logger, metrics)
 	if err != nil {
 		return err

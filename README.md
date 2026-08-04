@@ -33,7 +33,7 @@ flowchart LR
 | --- | --- |
 | 产品与物模型 | 产品、属性定义（类型/单位/范围），设备注册即签发密钥 |
 | 设备接入 | MQTT 一机一密认证、心跳 + 遗嘱上下线检测、设备级 topic ACL |
-| 遥测链路 | 物模型校验 → TDengine 落库，支持区间查询、1m/5m/1h 降采样、最新值快照 |
+| 遥测链路 | 物模型校验（产品缓存）→ TDengine 批量落库，多 worker 并行消费，支持区间查询、1m/5m/1h 降采样、最新值快照 |
 | 规则与告警 | 条件规则命中产生告警，支持解除 |
 | 设备影子 | desired/reported 分离、version 乐观锁；在线直发、离线缓存、重连补发 |
 | 指令下发 | 命令 topic + 设备异步 ack，超时惰性标记 |
@@ -181,7 +181,7 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 - [x] 登录端点（`POST /api/auth/login`，JWT 携带 role claim；角色分级待做）
 - [x] 完成 1000 台设备压测并回填 load-test.md（2026-08-03，见压力测试段落）
 - [x] TDengine 超级表/子表改造（每设备子表独立 ts 主键，同毫秒多设备上报不再相互覆盖；迁移见 `scripts/tdengine-migrate.sh`）
-- [ ] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（支撑更高吞吐）
+- [x] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（消费流水线见 [docs/design/persistence-spec.md](docs/design/persistence-spec.md)）
 - [ ] 遥测链路引入 Kafka 削峰（设备规模上来后需要）
 - [ ] 规则 CRUD 与告警自动恢复
 - [ ] 设备密钥加盐哈希存储

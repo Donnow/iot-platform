@@ -11,7 +11,8 @@ docs/
 │   └── iot-platform-srs.md
 ├── design/                           # 架构和关键技术设计
 │   ├── architecture.md
-│   └── business-logic.md
+│   ├── business-logic.md
+│   └── persistence-spec.md
 ├── api/                              # HTTP、MQTT 和内部接口契约
 │   ├── backend-api.md
 │   └── openapi.yaml
@@ -49,6 +50,7 @@ docs/
 | 12 | 08-03 | [压测排障复盘](operations/load-test-debugging.md) | 压测方法论、排障过程、Bug 根因与修复思路（面试素材） | Baseline |
 | 13 | 08-03 | [登录端点开发复盘](operations/login-endpoint-development.md) | 认证设计决策、接线踩坑、三层验证链（面试素材） | Baseline |
 | 14 | 08-03 | [CI 流水线搭建复盘](operations/ci-pipeline-development.md) | CI 分层设计、测试依赖审计、首次运行结果与 L3 路线 | Baseline |
+| 15 | 08-05 | [平台持久化规范](design/persistence-spec.md) | 消费流水线（分片 worker + 产品缓存 + 批量写）与存储语义、失败兜底、实现踩坑 | Baseline |
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
 `http://localhost:8080/openapi.yaml`。嵌入式契约位于

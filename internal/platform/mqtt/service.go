@@ -26,10 +26,15 @@ const (
 )
 
 type Config struct {
-	BrokerURL string
-	ClientID  string
-	Username  string
-	Password  string
+	BrokerURL       string
+	ClientID        string
+	Username        string
+	Password        string
+	Workers         int
+	QueueSize       int
+	BatchSize       int
+	BatchInterval   time.Duration
+	ProductCacheTTL time.Duration
 }
 
 type Client struct {
@@ -111,6 +116,25 @@ type Service struct {
 	serviceUsername string
 	servicePassword string
 
+	workers     int
+	queueSize   int
+	queues      []chan ingestion
+	products    *productCache
+	batchWriter *batchWriter
+
+	batchSize       int
+	batchInterval   time.Duration
+	batchRetries    int
+	retryBase       time.Duration
+	retryInterval   time.Duration
+	pendingCap      int
+	productCacheTTL time.Duration
+
+	consumersOnce  sync.Once
+	consumerCancel context.CancelFunc
+	workerWG       sync.WaitGroup
+	batchWG        sync.WaitGroup
+
 	mu sync.Mutex
 }
 
@@ -119,9 +143,18 @@ type ruleState struct {
 	triggered bool
 }
 
+type ingestion struct {
+	topic   string
+	payload []byte
+}
+
 type Metrics interface {
 	IncMQTTMessages()
 	IncMQTTErrors()
+	IncMQTTDropped()
+	IncTelemetryBatchFlushed(rows int)
+	IncTelemetryBatchRetries()
+	IncTelemetryBatchFailures()
 	IncRuleMatches()
 	IncAlarmsCreated()
 }
@@ -135,13 +168,26 @@ func NewServiceWithMetrics(config Config, repos repository.Repositories, logger 
 	if err != nil {
 		return nil, err
 	}
-	if logger == nil {
-		logger = slog.Default()
+	service := NewServiceWithClientAndMetrics(client, repos, logger, metrics)
+	if config.Workers > 0 {
+		service.workers = config.Workers
 	}
-	return &Service{
-		repos: repos, client: client, publisher: client, logger: logger, metrics: metrics, rules: make(map[string]ruleState),
-		serviceUsername: config.Username, servicePassword: config.Password,
-	}, nil
+	if config.QueueSize > 0 {
+		service.queueSize = config.QueueSize
+	}
+	if config.BatchSize > 0 {
+		service.batchSize = config.BatchSize
+	}
+	if config.BatchInterval > 0 {
+		service.batchInterval = config.BatchInterval
+	}
+	if config.ProductCacheTTL > 0 && repos.Products != nil {
+		service.productCacheTTL = config.ProductCacheTTL
+		service.products = newProductCache(repos.Products.GetProductByKey, service.productCacheTTL)
+	}
+	service.serviceUsername = config.Username
+	service.servicePassword = config.Password
+	return service, nil
 }
 
 func NewServiceWithClient(client *Client, repos repository.Repositories, logger *slog.Logger) *Service {
@@ -156,13 +202,23 @@ func NewServiceWithClientAndMetrics(client *Client, repos repository.Repositorie
 	if client != nil {
 		publisher = client
 	}
-	return &Service{repos: repos, client: client, publisher: publisher, logger: logger, metrics: metrics, rules: make(map[string]ruleState)}
+	service := &Service{
+		repos: repos, client: client, publisher: publisher, logger: logger, metrics: metrics, rules: make(map[string]ruleState),
+		workers: 4, queueSize: 1024, batchSize: 200, batchInterval: 200 * time.Millisecond,
+		batchRetries: 3, retryBase: 50 * time.Millisecond, retryInterval: 5 * time.Second, pendingCap: 1000,
+		productCacheTTL: 60 * time.Second,
+	}
+	if repos.Products != nil {
+		service.products = newProductCache(repos.Products.GetProductByKey, service.productCacheTTL)
+	}
+	return service
 }
 
 func (s *Service) Start(ctx context.Context) error {
 	if s.client == nil {
 		return errors.New("MQTT client is required")
 	}
+	s.startConsumers()
 	if err := s.client.Connect(ctx); err != nil {
 		return err
 	}
@@ -177,21 +233,109 @@ func (s *Service) Start(ctx context.Context) error {
 	return nil
 }
 
+// startConsumers launches the sharded worker pool and the telemetry batch
+// writer exactly once. It is idempotent so that Start can be retried after a
+// connection failure without leaking goroutines.
+func (s *Service) startConsumers() {
+	s.consumersOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.consumerCancel = cancel
+		s.queues = make([]chan ingestion, s.workers)
+		for i := 0; i < s.workers; i++ {
+			s.queues[i] = make(chan ingestion, s.queueSize)
+			s.workerWG.Add(1)
+			go s.worker(i, s.queues[i])
+		}
+		if s.batchWriter == nil {
+			s.batchWriter = newBatchWriter(s.repos.Telemetry, batchOptions{
+				size: s.batchSize, maxWait: s.batchInterval, retries: s.batchRetries,
+				retryBase: s.retryBase, retryInterval: s.retryInterval, pendingCap: s.pendingCap,
+			}, s.logger, s.metrics)
+		}
+		s.batchWG.Add(1)
+		go func() {
+			defer s.batchWG.Done()
+			s.batchWriter.run(ctx)
+		}()
+	})
+}
+
+// stopConsumers drains the sharded queues, then stops the batch writer and
+// flushes whatever is still buffered. Order matters: close the queues first so
+// workers finish their in-flight Adds before the batch writer flushes.
+func (s *Service) stopConsumers() {
+	if s.consumerCancel == nil {
+		return
+	}
+	for _, queue := range s.queues {
+		close(queue)
+	}
+	s.workerWG.Wait()
+	s.consumerCancel()
+	s.batchWG.Wait()
+}
+
+// worker consumes one shard serially so messages from the same device stay in
+// order; different shards run concurrently.
+func (s *Service) worker(index int, queue chan ingestion) {
+	defer s.workerWG.Done()
+	for in := range queue {
+		if err := s.ProcessMessage(context.Background(), in.topic, in.payload); err != nil {
+			if s.metrics != nil {
+				s.metrics.IncMQTTErrors()
+			}
+			s.logger.Error("process MQTT message", "topic", in.topic, "error", err)
+		}
+	}
+}
+
+func shardIndex(deviceID string, shards int) int {
+	hash := 0
+	for _, r := range deviceID {
+		hash = (hash*31 + int(r)) & 0x7fffffff
+	}
+	return hash % shards
+}
+
 func (s *Service) subscribeAll(ctx context.Context) error {
 	for _, topic := range []string{telemetrySubscription, eventSubscription, commandReplySubscription, shadowReportedSubscription} {
 		topic := topic
 		if err := s.client.Subscribe(ctx, topic, func(topic string, payload []byte) {
-			if err := s.ProcessMessage(context.Background(), topic, payload); err != nil {
-				if s.metrics != nil {
-					s.metrics.IncMQTTErrors()
-				}
-				s.logger.Error("process MQTT message", "topic", topic, "error", err)
-			}
+			s.route(topic, payload)
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// route runs on the paho callback and must never block: it shards by
+// device_id and enqueues non-blocking, dropping the message when the shard
+// queue is full (backpressure).
+func (s *Service) route(topic string, payload []byte) {
+	if s.metrics != nil {
+		s.metrics.IncMQTTMessages()
+	}
+	_, deviceID, _, err := ParseDeviceTopic(topic)
+	if err != nil {
+		if s.metrics != nil {
+			s.metrics.IncMQTTErrors()
+		}
+		s.logger.Error("route MQTT message", "topic", topic, "error", err)
+		return
+	}
+	if len(s.queues) == 0 {
+		return
+	}
+	shard := shardIndex(deviceID, len(s.queues))
+	select {
+	case s.queues[shard] <- ingestion{topic: topic, payload: payload}:
+	default:
+		if s.metrics != nil {
+			s.metrics.IncMQTTDropped()
+		}
+		s.logger.Warn("MQTT consumer queue full; dropping message", "topic", topic)
+	}
 }
 
 func (s *Service) watchLost(ctx context.Context) {
@@ -207,6 +351,7 @@ func (s *Service) watchLost(ctx context.Context) {
 }
 
 func (s *Service) Stop(ctx context.Context) error {
+	s.stopConsumers()
 	if s.client == nil {
 		return nil
 	}
@@ -221,9 +366,6 @@ func (s *Service) Publish(ctx context.Context, topic string, qos byte, retained 
 }
 
 func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []byte) error {
-	if s.metrics != nil {
-		s.metrics.IncMQTTMessages()
-	}
 	productKey, deviceID, suffix, err := ParseDeviceTopic(topic)
 	if err != nil {
 		return err
@@ -241,8 +383,8 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 			return err
 		}
 		sample := domain.Telemetry{ProductKey: productKey, DeviceID: deviceID, Timestamp: time.UnixMilli(input.TS).UTC(), Values: input.Values}
-		if s.repos.Products != nil {
-			product, err := s.repos.Products.GetProductByKey(ctx, productKey)
+		if s.products != nil {
+			product, err := s.products.Get(ctx, productKey)
 			if err != nil {
 				return err
 			}
@@ -250,7 +392,11 @@ func (s *Service) ProcessMessage(ctx context.Context, topic string, payload []by
 				return err
 			}
 		}
-		if err := s.repos.Telemetry.AppendTelemetry(ctx, sample); err != nil {
+		if s.batchWriter != nil {
+			if err := s.batchWriter.Add(ctx, sample); err != nil {
+				return err
+			}
+		} else if err := s.repos.Telemetry.AppendTelemetry(ctx, sample); err != nil {
 			return err
 		}
 		return s.evaluateRules(ctx, sample)

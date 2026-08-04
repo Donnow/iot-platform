@@ -16,6 +16,7 @@
 | 09 | 08-03 04:27–04:28 | 登录端点 | users 表 + bcrypt + JWT 签发、PG 仓储接线踩坑（501）、前端登录表单、三层验证链 → 复盘 | [login-endpoint-development.md](operations/login-endpoint-development.md) |
 | 10 | 08-03 04:32–04:35 | CI 流水线 | GitHub Actions 三层设计（L1 测试 / L2 构建 / L3 e2e 后置）、测试依赖审计、首次运行全绿 → 复盘 | [ci-pipeline-development.md](operations/ci-pipeline-development.md) |
 | 11 | 08-04 14:45–14:52 | 存储层改造 | TDengine 单普通表 → 超级表/每设备子表（子表名 md5 编码、DESCRIBE 校验、INSERT USING TAGS、查询改子表 + 应用层回填），迁移脚本 + 单测 + 文档同步 | [tdengine-stable-migration.md](design/tdengine-stable-migration.md)、[tdengine-migrate.sh](../scripts/tdengine-migrate.sh) |
+| 12 | 08-05 00:15–00:35 | 消费流水线 | MQTT 单线程串行 → 分片 worker 池 + 产品缓存 + TDengine 批量写入（重试/隔离重放），含持久化规范与踩坑记录 | [persistence-spec.md](design/persistence-spec.md) |
 
 ## 每阶段一句话（面试叙事版）
 
@@ -28,12 +29,12 @@
 7. **08-03 登录**：认证闭环（bcrypt + JWT + 防枚举），接线错误靠端到端验证兜底
 8. **08-03 CI**：分层流水线 + 测试依赖审计，徽章上 README
 9. **08-04 存储**：压测暴露的"静默覆盖"架构债闭环——单表改超级表/每设备子表，配合幂等迁移脚本
+10. **08-05 流水线**：消费端单线程瓶颈闭环——分片 worker + 产品缓存 + 批量写，写失败可重放
 
 ## 后续路线（未完成阶段）
 
 | 优先级 | 内容 | 关联文档 |
 | --- | --- | --- |
 | P1 | CI L3：compose e2e（复用 devicesim/latencyprobe，手动触发） | ci-pipeline-development.md §6 |
-| P2 | 平台消费端多 worker + 产品缓存 + TDengine 批量写入 | issues 遗留 |
 | P2 | 角色分级（JWT 已有 role claim）、登录限流 | login-endpoint-development.md §6 |
 | P3 | Kafka 削峰、GHCR 镜像推送、规则 CRUD、设备密钥哈希 | README Roadmap |

@@ -214,7 +214,8 @@ GET /api/devices/{id}/commands/{command_id} 查询状态
 | 数据 | 存储 | 策略 |
 | --- | --- | --- |
 | 产品/设备/规则/告警/指令/影子/固件/OTA | PostgreSQL | 权威存储，事务保证一致性 |
-| 遥测 | TDengine | 超级表 `iot_telemetry.telemetry(ts, payload NCHAR(4096)) TAGS (device_id BINARY(128), product_key BINARY(128))`，每设备一个子表 `t_<md5(device_id) 前 8 字节 hex>`，保留 3650 天 |
+| 遥测 | TDengine | 超级表 `iot_telemetry.telemetry(ts, payload NCHAR(4096)) TAGS (device_id BINARY(128), product_key BINARY(128))`，每设备一个子表 `t_<md5(device_id) 前 8 字节 hex>`，批量写入，保留 3650 天 |
+| 产品模型缓存 | 进程内存 | 消费端物模型校验用，TTL 60s，读多写少免每消息 PG 查询 |
 | 设备在线状态 | Redis `device:online:<id>` | TTL 10 分钟，上线 SET / 下线 DEL |
 | 影子缓存 | Redis `device:shadow:<id>` | 写入时更新，读取时优先缓存、PG 兜底 |
 | 规则窗口状态 | 进程内存 | 重启重置（允许） |
@@ -224,6 +225,11 @@ GET /api/devices/{id}/commands/{command_id} 查询状态
 作为标签随子表存储，查询结果由应用层回填。由单普通表迁移到超级表模型的步骤见
 [tdengine-stable-migration.md](tdengine-stable-migration.md) 与
 `scripts/tdengine-migrate.sh`。
+
+MQTT 消费端为**分片 worker 池 + 批量写入**：paho 回调按 `device_id` 哈希入队即返，
+N 个 worker 并行消费；遥测样本攒批后单语句多表写入，失败退避重试并隔离重放。
+一致性为有界最终一致（滞后 ≤ 攒批窗口），详见
+[persistence-spec.md](persistence-spec.md)。
 
 ## 6. 容错与一致性机制
 

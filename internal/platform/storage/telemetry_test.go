@@ -157,6 +157,61 @@ func TestTDengineTelemetryRepository(t *testing.T) {
 	}
 }
 
+func TestTDengineAppendTelemetryBatch(t *testing.T) {
+	var statements []string
+	var mu sync.Mutex
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		mu.Lock()
+		statements = append(statements, string(body))
+		mu.Unlock()
+		return jsonResponse(`{"code":0,"rows":3}`), nil
+	})}
+
+	td := NewTDengine("http://tdengine.test", "", "")
+	td.httpClient = client
+	store := &Store{telemetry: td}
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.AppendTelemetryBatch(context.Background(), []domain.Telemetry{
+		{DeviceID: "d-1", ProductKey: "sensor-v1", Timestamp: base, Values: map[string]any{"temperature": 20.0}},
+		{DeviceID: "d-1", ProductKey: "sensor-v1", Timestamp: base.Add(time.Second), Values: map[string]any{"temperature": 21.0}},
+		{DeviceID: "d-2", ProductKey: "sensor-v1", Timestamp: base, Values: map[string]any{"humidity": 50.0}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(statements) != 1 {
+		t.Fatalf("expected 1 batch statement, got %d: %#v", len(statements), statements)
+	}
+	stmt := statements[0]
+	if !strings.HasPrefix(stmt, "INSERT INTO ") {
+		t.Fatalf("batch should be a single multi-table insert: %q", stmt)
+	}
+	if !strings.Contains(stmt, "USING "+telemetryStable+" TAGS ('d-1', 'sensor-v1') VALUES (") {
+		t.Fatalf("missing d-1 USING group: %q", stmt)
+	}
+	if !strings.Contains(stmt, ") (") {
+		t.Fatalf("expected multiple values per device group: %q", stmt)
+	}
+	if !strings.Contains(stmt, "USING "+telemetryStable+" TAGS ('d-2', 'sensor-v1') VALUES (") {
+		t.Fatalf("missing d-2 USING group: %q", stmt)
+	}
+}
+
+func TestTDengineAppendTelemetryBatchEmpty(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("should not query TDengine for an empty batch")
+		return nil, nil
+	})}
+	td := NewTDengine("http://tdengine.test", "", "")
+	td.httpClient = client
+	store := &Store{telemetry: td}
+	if err := store.AppendTelemetryBatch(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTDengineQueryMissingChildReturnsEmpty(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(request.Body)

@@ -184,4 +184,3 @@
 | 遥测写入曾出现 1 次 TDengine 超时（chaos 测试期间），此后 0 错误 | 观察 |
 | 前端构建存在 chunk >500kB 警告 | 非阻塞 |
 | `mosquitto-starter` 的 EMQX 容器已停止（`docker start emqx` 可恢复） | 环境状态 |
-| 平台 MQTT 消费为单线程串行（paho 回调 + 逐条 PG 查询 + 逐条 TDengine HTTP 写入），200 msg/s 已接近上限 | 待优化 |

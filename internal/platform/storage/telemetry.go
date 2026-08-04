@@ -206,6 +206,51 @@ func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) er
 	return err
 }
 
+func (s *Store) AppendTelemetryBatch(ctx context.Context, samples []domain.Telemetry) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	if s.telemetry == nil {
+		return errors.New("telemetry storage is not configured")
+	}
+	byDevice := make(map[string][]domain.Telemetry)
+	for _, sample := range samples {
+		if sample.DeviceID == "" || sample.Timestamp.IsZero() || len(sample.Values) == 0 {
+			continue
+		}
+		byDevice[sample.DeviceID] = append(byDevice[sample.DeviceID], sample)
+	}
+	if len(byDevice) == 0 {
+		return nil
+	}
+	var statement strings.Builder
+	statement.WriteString("INSERT INTO ")
+	first := true
+	for deviceID, deviceSamples := range byDevice {
+		if !first {
+			statement.WriteString(" ")
+		}
+		first = false
+		fmt.Fprintf(&statement, "%s USING %s TAGS ('%s', '%s') VALUES ",
+			telemetryChildTable(deviceID), telemetryStable,
+			escapeSQL(deviceID), escapeSQL(deviceSamples[0].ProductKey))
+		values := make([]string, 0, len(deviceSamples))
+		for _, sample := range deviceSamples {
+			payload, err := json.Marshal(sample.Values)
+			if err != nil {
+				return fmt.Errorf("encode telemetry: %w", err)
+			}
+			values = append(values, fmt.Sprintf("(%d, '%s')", sample.Timestamp.UnixMilli(), escapeSQL(string(payload))))
+		}
+		statement.WriteString(strings.Join(values, " "))
+	}
+	_, err := s.telemetry.query(ctx, statement.String())
+	return err
+}
+
 func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQuery) ([]domain.Telemetry, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err

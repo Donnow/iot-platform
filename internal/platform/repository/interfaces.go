@@ -67,6 +67,7 @@ type DeviceRepository interface {
 
 type TelemetryRepository interface {
 	AppendTelemetry(context.Context, domain.Telemetry) error
+	AppendTelemetryBatch(context.Context, []domain.Telemetry) error
 	QueryTelemetry(context.Context, TelemetryQuery) ([]domain.Telemetry, error)
 	SnapshotTelemetry(context.Context, string) (map[string]domain.Telemetry, error)
 }

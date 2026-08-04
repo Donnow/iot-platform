@@ -230,6 +230,21 @@ func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) er
 	return nil
 }
 
+func (s *Store) AppendTelemetryBatch(ctx context.Context, samples []domain.Telemetry) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sample := range samples {
+		if sample.DeviceID == "" || sample.Timestamp.IsZero() || len(sample.Values) == 0 {
+			continue
+		}
+		s.telemetry[sample.DeviceID] = append(s.telemetry[sample.DeviceID], cloneTelemetry(sample))
+	}
+	return nil
+}
+
 func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQuery) ([]domain.Telemetry, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
