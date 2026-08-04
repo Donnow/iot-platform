@@ -65,6 +65,22 @@ func TestTDengineEnsureSchemaRejectsWrongSchema(t *testing.T) {
 	}
 }
 
+func TestTDengineEnsureSchemaAcceptsVarcharTags(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		if strings.HasPrefix(string(body), "DESCRIBE") {
+			return jsonResponse(`{"code":0,"column_meta":[["Field","VARCHAR",64],["Type","VARCHAR",64],["Length","INT",4],["Note","VARCHAR",64]],"data":[["ts","TIMESTAMP",8,""],["payload","NCHAR",4096,""],["device_id","VARCHAR",128,"TAG"],["product_key","VARCHAR",128,"TAG"]],"rows":4}`), nil
+		}
+		return jsonResponse(`{"code":0,"rows":0}`), nil
+	})}
+
+	td := NewTDengine("http://tdengine.test", "", "")
+	td.httpClient = client
+	if err := td.EnsureSchema(context.Background()); err != nil {
+		t.Fatalf("TDengine 3.x reports BINARY tags as VARCHAR; expected schema to pass: %v", err)
+	}
+}
+
 func TestTelemetryChildTable(t *testing.T) {
 	table := telemetryChildTable("d-1")
 	if table != "t_1987a88fc39f6b7f" {
@@ -83,6 +99,9 @@ func TestTelemetryChildTable(t *testing.T) {
 		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
 			t.Fatalf("child table name contains invalid character %q", r)
 		}
+	}
+	if telemetryChildTableQualified("d-1") != "iot_telemetry.t_1987a88fc39f6b7f" {
+		t.Fatalf("qualified child table should carry the database prefix, got %q", telemetryChildTableQualified("d-1"))
 	}
 }
 
@@ -146,13 +165,13 @@ func TestTDengineTelemetryRepository(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !strings.Contains(statements[0], "INSERT INTO t_") || !strings.Contains(statements[0], "USING "+telemetryStable) || !strings.Contains(statements[0], "TAGS ('d''1', 'sensor-v1')") {
+	if !strings.Contains(statements[0], "INSERT INTO iot_telemetry.t_") || !strings.Contains(statements[0], "USING "+telemetryStable) || !strings.Contains(statements[0], "TAGS ('d''1', 'sensor-v1')") {
 		t.Fatalf("telemetry insert did not target a child table as expected: %q", statements[0])
 	}
-	if !strings.Contains(statements[1], "SELECT product_key FROM t_1987a88fc39f6b7f") {
+	if !strings.Contains(statements[1], "SELECT product_key FROM iot_telemetry.t_1987a88fc39f6b7f") {
 		t.Fatalf("product_key tag was not resolved from the child table: %q", statements[1])
 	}
-	if !strings.Contains(statements[2], "SELECT ts, payload FROM t_1987a88fc39f6b7f") || !strings.Contains(statements[2], "ORDER BY ts ASC") {
+	if !strings.Contains(statements[2], "SELECT ts, payload FROM iot_telemetry.t_1987a88fc39f6b7f") || !strings.Contains(statements[2], "ORDER BY ts ASC") {
 		t.Fatalf("telemetry query was not constrained as expected: %q", statements[2])
 	}
 }

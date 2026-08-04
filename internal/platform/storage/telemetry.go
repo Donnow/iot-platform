@@ -168,7 +168,9 @@ func (t *TDengine) verifyTelemetrySchema(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("TDengine stable %s is missing tag %s", telemetryStable, expected.name)
 		}
-		if !strings.EqualFold(got, expected.columnType) {
+		// TDengine 3.x aliases BINARY as VARCHAR: a tag created as BINARY
+		// is reported as VARCHAR by DESCRIBE. Accept both.
+		if !strings.EqualFold(got, expected.columnType) && !strings.EqualFold(got, "VARCHAR") {
 			return fmt.Errorf("TDengine stable %s tag %s has type %s, want %s", telemetryStable, expected.name, got, expected.columnType)
 		}
 	}
@@ -178,6 +180,10 @@ func (t *TDengine) verifyTelemetrySchema(ctx context.Context) error {
 func telemetryChildTable(deviceID string) string {
 	sum := md5.Sum([]byte(deviceID))
 	return "t_" + hex.EncodeToString(sum[:8])
+}
+
+func telemetryChildTableQualified(deviceID string) string {
+	return telemetryDatabase + "." + telemetryChildTable(deviceID)
 }
 
 func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) error {
@@ -195,7 +201,7 @@ func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) er
 		return fmt.Errorf("encode telemetry: %w", err)
 	}
 	statement := fmt.Sprintf("INSERT INTO %s USING %s TAGS ('%s', '%s') VALUES (%d, '%s')",
-		telemetryChildTable(sample.DeviceID),
+		telemetryChildTableQualified(sample.DeviceID),
 		telemetryStable,
 		escapeSQL(sample.DeviceID),
 		escapeSQL(sample.ProductKey),
@@ -235,7 +241,7 @@ func (s *Store) AppendTelemetryBatch(ctx context.Context, samples []domain.Telem
 		}
 		first = false
 		fmt.Fprintf(&statement, "%s USING %s TAGS ('%s', '%s') VALUES ",
-			telemetryChildTable(deviceID), telemetryStable,
+			telemetryChildTableQualified(deviceID), telemetryStable,
 			escapeSQL(deviceID), escapeSQL(deviceSamples[0].ProductKey))
 		values := make([]string, 0, len(deviceSamples))
 		for _, sample := range deviceSamples {
@@ -261,7 +267,7 @@ func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQu
 	if s.telemetry == nil {
 		return nil, errors.New("telemetry storage is not configured")
 	}
-	child := telemetryChildTable(query.DeviceID)
+	child := telemetryChildTableQualified(query.DeviceID)
 	productKey, err := s.telemetry.queryTag(ctx, child, "product_key")
 	if err != nil {
 		if isMissingTableError(err) {

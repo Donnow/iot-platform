@@ -132,7 +132,7 @@ def stable_exists():
 
 def child_table(device_id):
     digest = hashlib.md5(device_id.encode("utf-8")).hexdigest()
-    return "t_" + digest[:16]
+    return f"{DB}.t_" + digest[:16]
 
 
 def ensure_stable():
@@ -155,7 +155,7 @@ def sampled_ts(device_id, legacy_count):
     samples = []
     for offset in (0, max(0, legacy_count // 2), max(0, legacy_count - 1)):
         row = sql(
-            f"SELECT ts FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}' "
+            f"SELECT CAST(ts AS BIGINT) FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}' "
             f"ORDER BY ts ASC LIMIT 1 OFFSET {offset}"
         ).get("data")
         if row:
@@ -172,7 +172,7 @@ def replay_device(device_id, product_key):
     batch = 500
     while offset < legacy_count:
         rows = sql(
-            f"SELECT ts, payload FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}' "
+            f"SELECT CAST(ts AS BIGINT), payload FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}' "
             f"ORDER BY ts ASC LIMIT {batch} OFFSET {offset}"
         ).get("data") or []
         values = [f"({int(ts)}, '{escape_sql(payload)}')" for ts, payload in rows]
@@ -190,10 +190,10 @@ def replay_device(device_id, product_key):
         raise RuntimeError(
             f"{device_id}: 样本数不一致 legacy={legacy_count} child={child_count}"
         )
-    legacy_min = scalar(f"SELECT MIN(ts) FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}'")
-    legacy_max = scalar(f"SELECT MAX(ts) FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}'")
-    child_min = scalar(f"SELECT MIN(ts) FROM {child}")
-    child_max = scalar(f"SELECT MAX(ts) FROM {child}")
+    legacy_min = scalar(f"SELECT FIRST(ts) FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}'")
+    legacy_max = scalar(f"SELECT LAST(ts) FROM {LEGACY} WHERE device_id = '{escape_sql(device_id)}'")
+    child_min = scalar(f"SELECT FIRST(ts) FROM {child}")
+    child_max = scalar(f"SELECT LAST(ts) FROM {child}")
     if child_min != legacy_min or child_max != legacy_max:
         raise RuntimeError(
             f"{device_id}: 时间范围不一致 legacy=[{legacy_min},{legacy_max}] "
@@ -201,10 +201,12 @@ def replay_device(device_id, product_key):
         )
     for ts in sampled_ts(device_id, legacy_count):
         legacy_row = sql(
-            f"SELECT ts, payload FROM {LEGACY} "
+            f"SELECT CAST(ts AS BIGINT), payload FROM {LEGACY} "
             f"WHERE device_id = '{escape_sql(device_id)}' AND ts = {ts}"
         ).get("data")
-        child_row = sql(f"SELECT ts, payload FROM {child} WHERE ts = {ts}").get("data")
+        child_row = sql(
+            f"SELECT CAST(ts AS BIGINT), payload FROM {child} WHERE ts = {ts}"
+        ).get("data")
         if not legacy_row and not child_row:
             continue
         if legacy_row != child_row:
