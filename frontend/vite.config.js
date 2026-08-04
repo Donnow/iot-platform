@@ -15,6 +15,9 @@ export default defineConfig({
   preview: {
     port: 4173,
   },
+  build: {
+    chunkSizeWarningLimit: 500,
+  },
   test: {
     environment: 'jsdom',
   },

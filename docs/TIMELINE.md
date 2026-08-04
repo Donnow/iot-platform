@@ -17,7 +17,7 @@
 | 10 | 08-03 04:32–04:35 | CI 流水线 | GitHub Actions 三层设计（L1 测试 / L2 构建 / L3 e2e 后置）、测试依赖审计、首次运行全绿 → 复盘 | [ci-pipeline-development.md](operations/ci-pipeline-development.md) |
 | 11 | 08-04 14:45–14:52 | 存储层改造 | TDengine 单普通表 → 超级表/每设备子表（子表名 md5 编码、DESCRIBE 校验、INSERT USING TAGS、查询改子表 + 应用层回填），迁移脚本 + 单测 + 文档同步 | [tdengine-stable-migration.md](design/tdengine-stable-migration.md)、[tdengine-migrate.sh](../scripts/tdengine-migrate.sh) |
 | 12 | 08-05 00:15–00:35 | 消费流水线 | MQTT 单线程串行 → 分片 worker 池 + 产品缓存 + TDengine 批量写入（重试/隔离重放），含持久化规范与踩坑记录 | [persistence-spec.md](design/persistence-spec.md) |
-| 13 | 08-05 | 架构演进规划 | 汇总分散遗留项，建立 P0/P1/P2 统一 TODO 与可靠性、安全、可观测性、扩容需求基线 | [TODO.md](../TODO.md)、[architecture-evolution-srs.md](requirements/architecture-evolution-srs.md) |
+| 13 | 08-05 | 架构演进规划 | 汇总分散遗留项，建立 P0/P1/P2 统一 TODO 与可靠性、安全、可观测性、扩容需求基线 | [TODO.md](TODO.md)、[architecture-evolution-srs.md](requirements/architecture-evolution-srs.md) |
 
 ## 每阶段一句话（面试叙事版）
 
@@ -35,6 +35,6 @@
 
 ## 后续路线（未完成阶段）
 
-后续状态统一见 [TODO.md](../TODO.md)，验收口径见
+后续状态统一见 [TODO.md](TODO.md)，验收口径见
 [平台架构演进需求规格说明书](requirements/architecture-evolution-srs.md)。时间线只记录已经发生的
 阶段，避免与任务清单产生重复状态。

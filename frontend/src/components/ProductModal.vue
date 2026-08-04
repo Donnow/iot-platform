@@ -1,0 +1,11 @@
+<script setup>
+import { toRefs } from 'vue'
+import { Plus, Trash2, X } from 'lucide-vue-next'
+import { store, addProperty, createProduct, removeProperty } from '../store'
+
+const { showProductModal, productForm } = toRefs(store)
+</script>
+
+<template>
+  <div v-if="showProductModal" class="modal-backdrop" @click.self="store.showProductModal = false"><section class="modal modal-wide"><div class="modal-heading"><div><span class="panel-kicker">NEW PRODUCT</span><h2>新建产品</h2></div><button class="icon-button" title="关闭" @click="store.showProductModal = false"><X :size="18" /></button></div><div class="form-grid"><label>产品名称<input v-model="productForm.name" placeholder="例如：温湿度传感器" /></label><label>设备类型<select v-model="productForm.device_type"><option value="sensor">传感器</option><option value="actuator">执行器</option><option value="composite">复合设备</option></select></label><label>产品 Key（可选）<input v-model="productForm.product_key" placeholder="系统自动生成" /></label><label>描述（可选）<input v-model="productForm.description" placeholder="产品用途" /></label></div><div class="property-editor"><div class="state-heading"><div><span class="panel-kicker">THING MODEL</span><strong>属性定义</strong></div><button class="ghost-button compact-action" @click="addProperty"><Plus :size="14" />添加属性</button></div><div v-for="(property, index) in productForm.properties" :key="index" class="property-row"><input v-model="property.name" placeholder="属性名" /><select v-model="property.data_type"><option value="float">float</option><option value="int">int</option><option value="bool">bool</option><option value="string">string</option></select><input v-model="property.unit" placeholder="单位" /><input v-model="property.min_value" type="number" placeholder="最小值" /><input v-model="property.max_value" type="number" placeholder="最大值" /><button class="icon-button small danger-icon" title="移除属性" @click="removeProperty(index)"><Trash2 :size="14" /></button></div><div v-if="!productForm.properties.length" class="editor-empty">可选。添加属性后，平台会校验设备遥测类型和范围。</div></div><div class="modal-actions"><button class="ghost-button" @click="store.showProductModal = false">取消</button><button class="primary-button" @click="createProduct"><Plus :size="16" />创建产品</button></div></section></div>
+</template>

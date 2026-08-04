@@ -54,7 +54,7 @@ docs/
 | 15 | 08-05 | [平台持久化规范](design/persistence-spec.md) | 消费流水线（分片 worker + 产品缓存 + 批量写）与存储语义、失败兜底、实现踩坑 | Baseline |
 | 16 | 08-05 | [平台架构演进需求规格](requirements/architecture-evolution-srs.md) | 可靠消息、安全边界、应用层、可观测性和扩容门槛 | Draft |
 
-仓库全部未完成任务统一维护在 [根目录 TODO](../TODO.md)。其他文档中的 Roadmap、
+仓库全部未完成任务统一维护在 [TODO.md](TODO.md)。其他文档中的 Roadmap、
 “后续”或“明确不做”章节用于保留决策背景，不作为任务状态来源。
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为

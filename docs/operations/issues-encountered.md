@@ -179,7 +179,7 @@
 
 ## 五、遗留观察项（非阻塞）
 
-> 可落地的修复任务统一维护在 [TODO.md](../../TODO.md)，
+> 可落地的修复任务统一维护在 [TODO.md](../TODO.md)，
 > 需求基线见 [architecture-evolution-srs.md](../requirements/architecture-evolution-srs.md)。
 
 | 项目 | 状态 |

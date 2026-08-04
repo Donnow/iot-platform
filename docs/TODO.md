@@ -5,7 +5,7 @@
 | 版本 | v0.1 |
 | 日期 | 2026-08-05 |
 | 状态 | Active |
-| 需求基线 | [平台架构演进需求规格说明书](docs/requirements/architecture-evolution-srs.md) |
+| 需求基线 | [平台架构演进需求规格说明书](requirements/architecture-evolution-srs.md) |
 
 本文是仓库中**未完成工作的唯一状态清单**。README、时间线、设计复盘中的
 Roadmap 或“后续”章节只保留背景说明，任务状态统一在这里更新。
@@ -138,11 +138,12 @@ Roadmap 或“后续”章节只保留背景说明，任务状态统一在这里
 - 验收：构建时只从一个 OpenAPI 源生成或嵌入；CI 校验生成结果无差异；完成一次需求、接口、README、运行手册一致性审计。
 - 需求：`FR-OPS-05`、`NFR-MAINT-01`。
 
-### [ ] ARC-P1-13 前端按业务域拆分并补测试
+### [x] ARC-P1-13 前端按业务域拆分并补测试
 
 - 范围：overview/devices/alarms/rules/products/ota 视图组件、API composable、实时连接 composable、表单与状态测试，以及 ECharts/业务视图按需加载。
 - 验收：`App.vue` 只保留应用壳与导航；各业务域可独立测试；不为当前规模强制引入全局状态框架；生产构建不再出现 500 kB chunk 警告并记录 bundle budget。
 - 需求：`FR-FE-01`、`FR-FE-03`、`FR-FE-04`。
+- 完成记录：2026-08-05。`App.vue` 收敛为应用壳（导航/顶栏/异步视图切换）；共享状态与动作集中在 `frontend/src/store.js`（手写 reactive store）；6 个业务视图 + 7 个弹窗组件按域拆分；ECharts 改为按需子集化并随 Overview 视图异步加载；`npm run build` 内置 bundle budget 校验。验证：`npm test` 32 条全绿；`npm run build` 无 500 kB chunk 警告（最大 chunk 249 kB）。
 
 ### [ ] ARC-P1-14 连接风暴保护
 
@@ -200,10 +201,11 @@ Roadmap 或“后续”章节只保留背景说明，任务状态统一在这里
 | 日期 | ID | 结果 | 验证 |
 | --- | --- | --- | --- |
 | 2026-08-03 | 登录端点（bcrypt 管理员密码 + JWT 签发） | 完成 | `go test ./...` 全绿 |
-| 2026-08-03 | 1000 台设备/200 msg/s 单机压测与延迟探针 | 完成 | [load-test.md](docs/operations/load-test.md)、latencyprobe 记录 P50/P95/P99 |
-| 2026-08-03 | 后端测试、前端测试和 Docker build CI 基础层 | 完成 | [ci.yml](.github/workflows/ci.yml) 三作业全绿 |
+| 2026-08-03 | 1000 台设备/200 msg/s 单机压测与延迟探针 | 完成 | [load-test.md](operations/load-test.md)、latencyprobe 记录 P50/P95/P99 |
+| 2026-08-03 | 后端测试、前端测试和 Docker build CI 基础层 | 完成 | [ci.yml](../.github/workflows/ci.yml) 三作业全绿 |
 | 2026-08-04 | TDengine 超级表/每设备子表迁移 | 完成 | `go test ./...` 全绿；迁移脚本幂等/重跑/`--drop-legacy` 四路径验证 |
 | 2026-08-05 | MQTT 分片 worker、产品缓存和 TDengine 批量写入 | 完成 | `go test ./... -race` 全绿；批量/缓存/重试/隔离重放单测 12 条 |
+| 2026-08-05 | ARC-P1-13 前端按业务域拆分并补测试 | 完成 | `npm test` 32 条全绿；`npm run build` 无 500 kB 警告（最大 249 kB） |
 
 ## 已完成基线（不再作为代办）
 

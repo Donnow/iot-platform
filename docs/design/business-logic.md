@@ -246,7 +246,7 @@ N 个 worker 并行消费；遥测样本攒批后单语句多表写入，失败�
 ## 7. 已知限制与偏差
 
 > 以下限制的修复任务、状态与验收口径统一维护在
-> [TODO.md](../../TODO.md)（需求基线：
+> [TODO.md](../TODO.md)（需求基线：
 > [architecture-evolution-srs.md](../requirements/architecture-evolution-srs.md)）。
 > 括号内为对应任务 ID。
 

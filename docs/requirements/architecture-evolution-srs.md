@@ -5,7 +5,7 @@
 | 版本 | v0.1 |
 | 日期 | 2026-08-05 |
 | 状态 | Draft |
-| 任务清单 | [TODO.md](../../TODO.md) |
+| 任务清单 | [TODO.md](../TODO.md) |
 | 关联文档 | [平台架构](../design/architecture.md)、[业务逻辑](../design/business-logic.md)、[持久化规范](../design/persistence-spec.md)、[原始 SRS](iot-platform-srs.md) |
 
 ---

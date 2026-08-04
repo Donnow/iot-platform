@@ -114,7 +114,7 @@ go run ./cmd/devicesim -credentials /tmp/devices.json \
 
 ```bash
 go test ./...                      # 后端单元测试 + 进程内集成测试
-cd frontend && npm ci && npm test  # 前端 api 层测试（vitest）
+cd frontend && npm ci && npm test && npm run build  # 前端单元测试 + 生产构建（含 bundle budget 校验）
 ```
 
 ## 压力测试
@@ -164,7 +164,7 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 
 - [需求规格说明书（SRS）](docs/requirements/iot-platform-srs.md) — 产品范围、MQTT topic 规范、验收基线
 - [架构演进需求规格](docs/requirements/architecture-evolution-srs.md) — 可靠性、安全、可观测性与扩容需求
-- [统一 TODO](TODO.md) — 全部未完成任务、优先级、依赖与完成定义
+- [统一 TODO](docs/TODO.md) — 全部未完成任务、优先级、依赖与完成定义
 - [业务逻辑详解](docs/design/business-logic.md) — 状态机、消息契约、容错机制（Baseline）
 - [问题记录与排障](docs/operations/issues-encountered.md) — 17 个真实问题：现象/根因/解决（Baseline）
 - [后端接口与消息契约](docs/api/backend-api.md) / [OpenAPI](docs/api/openapi.yaml)
@@ -180,7 +180,7 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 
 ## Roadmap
 
-全部未完成工作统一维护在 [TODO.md](TODO.md)，详细验收标准见
+全部未完成工作统一维护在 [TODO.md](docs/TODO.md)，详细验收标准见
 [架构演进需求规格说明书](docs/requirements/architecture-evolution-srs.md)。当前优先顺序为：
 
 1. Redis 降级、安全边界与设备密钥治理
