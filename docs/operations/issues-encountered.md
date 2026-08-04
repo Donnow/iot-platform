@@ -164,8 +164,10 @@
 - **处理**：模拟器连接后对 ticker 施加 0–1000ms 随机相位偏移
   （`internal/devicesim/device.go`），使各设备上报时间戳自然散布；
   修复后 10 台落库率 35% → 95%，1000 台落库率 ~75%
-- **遗留**：TDengine 仍为单表 ts 主键，同毫秒多设备上报仍可能覆盖；
-  SRS 规划的超级表/每设备子表未实现，是后续优化方向（见遗留观察项）
+- **遗留（2026-08-04 已解决）**：TDengine 存储层由单普通表迁移为超级表/每设备子表
+  （每设备独立 ts 主键，同毫秒多设备不再互相覆盖），迁移见
+  [tdengine-stable-migration.md](../design/tdengine-stable-migration.md) 与
+  `scripts/tdengine-migrate.sh`
 
 ### 17. 1000 台同时连接时认证回调瞬时超时（启动风暴）
 
@@ -182,5 +184,4 @@
 | 遥测写入曾出现 1 次 TDengine 超时（chaos 测试期间），此后 0 错误 | 观察 |
 | 前端构建存在 chunk >500kB 警告 | 非阻塞 |
 | `mosquitto-starter` 的 EMQX 容器已停止（`docker start emqx` 可恢复） | 环境状态 |
-| TDengine 单表 ts 主键：同毫秒多设备上报相互覆盖（SRS 规划的超级表/子表未实现） | 待优化 |
 | 平台 MQTT 消费为单线程串行（paho 回调 + 逐条 PG 查询 + 逐条 TDengine HTTP 写入），200 msg/s 已接近上限 | 待优化 |

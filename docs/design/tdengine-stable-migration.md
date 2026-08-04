@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Design（2026-08-03） |
+| 状态 | 已实现（2026-08-04，迁移脚本 `scripts/tdengine-migrate.sh` 可用） |
 | 关联文档 | [业务逻辑 §5](../design/business-logic.md)、[压测复盘](../operations/load-test-debugging.md) |
 | 动机 | 压测暴露的架构债（同毫秒 ts 主键覆盖）+ 查询无设备分区 |
 
