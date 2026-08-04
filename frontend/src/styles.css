@@ -23,7 +23,7 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 
 .app-shell { display: flex; min-height: 100vh; }
-.sidebar { width: 244px; flex: 0 0 244px; background: var(--teal-dark); color: #d6e6e3; display: flex; flex-direction: column; padding: 25px 15px 18px; }
+.sidebar { width: 244px; flex: 0 0 244px; position: sticky; top: 0; height: 100vh; background: var(--teal-dark); color: #d6e6e3; display: flex; flex-direction: column; padding: 25px 15px 18px; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; padding: 0 10px 35px; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; color: #fff; background: var(--teal); border-radius: 8px; }
 .brand-lockup strong { display: block; color: #fff; font-size: 15px; letter-spacing: 1.8px; }

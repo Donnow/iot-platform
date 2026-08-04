@@ -16,7 +16,7 @@ import {
   Upload,
   Workflow,
 } from 'lucide-vue-next'
-import { store, connectRealtime, disconnectRealtime, loadData, navigate } from './store'
+import { store, connectRealtime, disconnectRealtime, loadData, navigate, showToast } from './store'
 import AuthModal from './components/AuthModal.vue'
 import CommandModal from './components/CommandModal.vue'
 import DeviceModal from './components/DeviceModal.vue'
@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
           <span class="status-dot" :class="store.connected ? 'dot-online' : 'dot-idle'"></span>
           <div><strong>{{ healthLabel }}</strong><span>数据服务</span></div>
         </div>
-        <button class="nav-item muted" title="系统设置"><Settings2 :size="17" /><span>系统设置</span></button>
+        <button class="nav-item muted" title="系统设置" @click="showToast('系统设置暂未开放')"><Settings2 :size="17" /><span>系统设置</span></button>
       </div>
     </aside>
 
