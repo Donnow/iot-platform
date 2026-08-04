@@ -8,7 +8,8 @@
 docs/
 ├── README.md                         # 文档入口和维护规范
 ├── requirements/                     # 产品需求和验收基线
-│   └── iot-platform-srs.md
+│   ├── iot-platform-srs.md
+│   └── architecture-evolution-srs.md
 ├── design/                           # 架构和关键技术设计
 │   ├── architecture.md
 │   ├── business-logic.md
@@ -51,6 +52,10 @@ docs/
 | 13 | 08-03 | [登录端点开发复盘](operations/login-endpoint-development.md) | 认证设计决策、接线踩坑、三层验证链（面试素材） | Baseline |
 | 14 | 08-03 | [CI 流水线搭建复盘](operations/ci-pipeline-development.md) | CI 分层设计、测试依赖审计、首次运行结果与 L3 路线 | Baseline |
 | 15 | 08-05 | [平台持久化规范](design/persistence-spec.md) | 消费流水线（分片 worker + 产品缓存 + 批量写）与存储语义、失败兜底、实现踩坑 | Baseline |
+| 16 | 08-05 | [平台架构演进需求规格](requirements/architecture-evolution-srs.md) | 可靠消息、安全边界、应用层、可观测性和扩容门槛 | Draft |
+
+仓库全部未完成任务统一维护在 [根目录 TODO](../TODO.md)。其他文档中的 Roadmap、
+“后续”或“明确不做”章节用于保留决策背景，不作为任务状态来源。
 
 运行中的 Swagger UI 地址为 `http://localhost:8080/docs`，原始契约地址为
 `http://localhost:8080/openapi.yaml`。嵌入式契约位于

@@ -179,8 +179,11 @@
 
 ## 五、遗留观察项（非阻塞）
 
+> 可落地的修复任务统一维护在 [TODO.md](../../TODO.md)，
+> 需求基线见 [architecture-evolution-srs.md](../requirements/architecture-evolution-srs.md)。
+
 | 项目 | 状态 |
 | --- | --- |
 | 遥测写入曾出现 1 次 TDengine 超时（chaos 测试期间），此后 0 错误 | 观察 |
-| 前端构建存在 chunk >500kB 警告 | 非阻塞 |
+| 前端构建存在 chunk >500kB 警告 → `ARC-P1-13` | 非阻塞 |
 | `mosquitto-starter` 的 EMQX 容器已停止（`docker start emqx` 可恢复） | 环境状态 |

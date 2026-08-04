@@ -8,7 +8,7 @@
 
 - **全链路可运行**：MQTT 接入 → 时序存储 → 实时控制台，一条龙，Compose 一键起，可现场演示
 - **一机一密动态认证**：设备密钥由平台签发，EMQX HTTP 认证/授权与平台联动，设备级 topic ACL
-- **设备影子**：desired/reported 分离 + version 乐观锁；设备重连自动补发影子与未完成 OTA 任务
+- **设备影子**：desired/reported 分离；设备重连自动补发影子与未完成 OTA 任务
 - **物模型驱动**：遥测按产品物模型校验后才落库，TDengine 超级表/子表 + 降采样聚合查询
 - **文档完备**：SRS、架构、业务逻辑、API 契约、测试计划、排障记录（15 个真实问题）齐备
 - **质量习惯**：分层结构、单元测试 + 进程内集成测试、Prometheus 指标、结构化日志
@@ -35,7 +35,7 @@ flowchart LR
 | 设备接入 | MQTT 一机一密认证、心跳 + 遗嘱上下线检测、设备级 topic ACL |
 | 遥测链路 | 物模型校验（产品缓存）→ TDengine 批量落库，多 worker 并行消费，支持区间查询、1m/5m/1h 降采样、最新值快照 |
 | 规则与告警 | 条件规则命中产生告警，支持解除 |
-| 设备影子 | desired/reported 分离、version 乐观锁；在线直发、离线缓存、重连补发 |
+| 设备影子 | desired/reported 分离；在线直发、离线缓存、重连补发（version 乐观锁列入演进需求） |
 | 指令下发 | 命令 topic + 设备异步 ack，超时惰性标记 |
 | OTA 升级 | 固件元数据登记、任务创建、设备阶段上报（downloading/installing/success） |
 | 运维控制台 | Vue3 + ECharts：设备/产品/告警/固件管理、实时数据查看 |
@@ -163,6 +163,8 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 [docs/TIMELINE.md](docs/TIMELINE.md)**（按时间线编号的阶段总览）。重点推荐：
 
 - [需求规格说明书（SRS）](docs/requirements/iot-platform-srs.md) — 产品范围、MQTT topic 规范、验收基线
+- [架构演进需求规格](docs/requirements/architecture-evolution-srs.md) — 可靠性、安全、可观测性与扩容需求
+- [统一 TODO](TODO.md) — 全部未完成任务、优先级、依赖与完成定义
 - [业务逻辑详解](docs/design/business-logic.md) — 状态机、消息契约、容错机制（Baseline）
 - [问题记录与排障](docs/operations/issues-encountered.md) — 17 个真实问题：现象/根因/解决（Baseline）
 - [后端接口与消息契约](docs/api/backend-api.md) / [OpenAPI](docs/api/openapi.yaml)
@@ -178,10 +180,10 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 
 ## Roadmap
 
-- [x] 登录端点（`POST /api/auth/login`，JWT 携带 role claim；角色分级待做）
-- [x] 完成 1000 台设备压测并回填 load-test.md（2026-08-03，见压力测试段落）
-- [x] TDengine 超级表/子表改造（每设备子表独立 ts 主键，同毫秒多设备上报不再相互覆盖；迁移见 `scripts/tdengine-migrate.sh`）
-- [x] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（消费流水线见 [docs/design/persistence-spec.md](docs/design/persistence-spec.md)）
-- [ ] 遥测链路引入 Kafka 削峰（设备规模上来后需要）
-- [ ] 规则 CRUD 与告警自动恢复
-- [ ] 设备密钥加盐哈希存储
+全部未完成工作统一维护在 [TODO.md](TODO.md)，详细验收标准见
+[架构演进需求规格说明书](docs/requirements/architecture-evolution-srs.md)。当前优先顺序为：
+
+1. Redis 降级、安全边界与设备密钥治理
+2. 遥测持久化接入和下行 Transactional Outbox
+3. application/usecase 层、业务完整性与可观测性
+4. 以 5000 msg/s 实测结果决定是否引入 Kafka 和多实例消费
