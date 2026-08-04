@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +20,7 @@ import (
 
 const (
 	telemetryDatabase = "iot_telemetry"
-	telemetryTable    = telemetryDatabase + ".telemetry"
+	telemetryStable   = telemetryDatabase + ".telemetry"
 	maxTelemetryBody  = 16 << 20
 )
 
@@ -83,17 +85,99 @@ func (t *TDengine) query(ctx context.Context, statement string) (tdengineRespons
 	return result, nil
 }
 
+func (t *TDengine) queryTag(ctx context.Context, table, tag string) (string, error) {
+	response, err := t.query(ctx, "SELECT "+tag+" FROM "+table)
+	if err != nil {
+		return "", err
+	}
+	if len(response.Data) == 0 || len(response.Data[0]) == 0 {
+		return "", nil
+	}
+	return fmt.Sprint(response.Data[0][0]), nil
+}
+
+func isMissingTableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "table does not exist") || strings.Contains(message, "table not exist")
+}
+
 func (t *TDengine) EnsureSchema(ctx context.Context) error {
 	statements := []string{
 		"CREATE DATABASE IF NOT EXISTS " + telemetryDatabase + " KEEP 3650",
-		"CREATE TABLE IF NOT EXISTS " + telemetryTable + " (ts TIMESTAMP, device_id BINARY(128), product_key BINARY(128), payload NCHAR(4096))",
+		"CREATE STABLE IF NOT EXISTS " + telemetryStable + " (ts TIMESTAMP, payload NCHAR(4096)) TAGS (device_id BINARY(128), product_key BINARY(128))",
 	}
 	for _, statement := range statements {
 		if _, err := t.query(ctx, statement); err != nil {
 			return err
 		}
 	}
+	return t.verifyTelemetrySchema(ctx)
+}
+
+func (t *TDengine) verifyTelemetrySchema(ctx context.Context) error {
+	response, err := t.query(ctx, "DESCRIBE "+telemetryStable)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]string)
+	tags := make(map[string]string)
+	for _, row := range response.Data {
+		if len(row) < 2 {
+			continue
+		}
+		name, ok := row[0].(string)
+		if !ok {
+			continue
+		}
+		columnType, ok := row[1].(string)
+		if !ok {
+			continue
+		}
+		isTag := false
+		if len(row) > 3 {
+			if note, ok := row[3].(string); ok && note == "TAG" {
+				isTag = true
+			}
+		}
+		if isTag {
+			tags[name] = columnType
+		} else {
+			columns[name] = columnType
+		}
+	}
+	for _, expected := range []struct{ name, columnType string }{
+		{"ts", "TIMESTAMP"},
+		{"payload", "NCHAR"},
+	} {
+		got, ok := columns[expected.name]
+		if !ok {
+			return fmt.Errorf("TDengine stable %s is missing column %s", telemetryStable, expected.name)
+		}
+		if !strings.EqualFold(got, expected.columnType) {
+			return fmt.Errorf("TDengine stable %s column %s has type %s, want %s", telemetryStable, expected.name, got, expected.columnType)
+		}
+	}
+	for _, expected := range []struct{ name, columnType string }{
+		{"device_id", "BINARY"},
+		{"product_key", "BINARY"},
+	} {
+		got, ok := tags[expected.name]
+		if !ok {
+			return fmt.Errorf("TDengine stable %s is missing tag %s", telemetryStable, expected.name)
+		}
+		if !strings.EqualFold(got, expected.columnType) {
+			return fmt.Errorf("TDengine stable %s tag %s has type %s, want %s", telemetryStable, expected.name, got, expected.columnType)
+		}
+	}
 	return nil
+}
+
+func telemetryChildTable(deviceID string) string {
+	sum := md5.Sum([]byte(deviceID))
+	return "t_" + hex.EncodeToString(sum[:8])
 }
 
 func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) error {
@@ -110,11 +194,12 @@ func (s *Store) AppendTelemetry(ctx context.Context, sample domain.Telemetry) er
 	if err != nil {
 		return fmt.Errorf("encode telemetry: %w", err)
 	}
-	statement := fmt.Sprintf("INSERT INTO %s (ts, device_id, product_key, payload) VALUES (%d, '%s', '%s', '%s')",
-		telemetryTable,
-		sample.Timestamp.UnixMilli(),
+	statement := fmt.Sprintf("INSERT INTO %s USING %s TAGS ('%s', '%s') VALUES (%d, '%s')",
+		telemetryChildTable(sample.DeviceID),
+		telemetryStable,
 		escapeSQL(sample.DeviceID),
 		escapeSQL(sample.ProductKey),
+		sample.Timestamp.UnixMilli(),
 		escapeSQL(string(payload)),
 	)
 	_, err = s.telemetry.query(ctx, statement)
@@ -131,14 +216,26 @@ func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQu
 	if s.telemetry == nil {
 		return nil, errors.New("telemetry storage is not configured")
 	}
-	where := []string{"device_id = '" + escapeSQL(query.DeviceID) + "'"}
+	child := telemetryChildTable(query.DeviceID)
+	productKey, err := s.telemetry.queryTag(ctx, child, "product_key")
+	if err != nil {
+		if isMissingTableError(err) {
+			return []domain.Telemetry{}, nil
+		}
+		return nil, err
+	}
+	where := make([]string, 0, 2)
 	if !query.From.IsZero() {
 		where = append(where, "ts >= "+strconv.FormatInt(query.From.UnixMilli(), 10))
 	}
 	if !query.To.IsZero() {
 		where = append(where, "ts <= "+strconv.FormatInt(query.To.UnixMilli(), 10))
 	}
-	statement := "SELECT ts, device_id, product_key, payload FROM " + telemetryTable + " WHERE " + strings.Join(where, " AND ") + " ORDER BY ts ASC"
+	statement := "SELECT ts, payload FROM " + child
+	if len(where) > 0 {
+		statement += " WHERE " + strings.Join(where, " AND ")
+	}
+	statement += " ORDER BY ts ASC"
 	if query.Interval == "" || query.Interval == "raw" {
 		if query.Limit > 0 {
 			statement += " LIMIT " + strconv.Itoa(query.Limit)
@@ -146,6 +243,9 @@ func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQu
 	}
 	response, err := s.telemetry.query(ctx, statement)
 	if err != nil {
+		if isMissingTableError(err) {
+			return []domain.Telemetry{}, nil
+		}
 		return nil, err
 	}
 	result := make([]domain.Telemetry, 0, len(response.Data))
@@ -154,6 +254,8 @@ func (s *Store) QueryTelemetry(ctx context.Context, query repository.TelemetryQu
 		if err != nil {
 			return nil, err
 		}
+		sample.DeviceID = query.DeviceID
+		sample.ProductKey = productKey
 		if query.Metric != "" {
 			value, ok := sample.Values[query.Metric]
 			if !ok {

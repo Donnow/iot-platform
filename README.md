@@ -134,6 +134,11 @@ payload `ts` 在 TDengine 单表 ts 主键下相互覆盖（修复前落库率�
 复现命令见 [docs/operations/load-test.md](docs/operations/load-test.md)，
 问题详情见 [docs/operations/issues-encountered.md](docs/operations/issues-encountered.md) #16/#17。
 
+存储层已于 2026-08-04 由单普通表迁移为超级表/每设备子表模型（每设备独立 ts
+主键，同毫秒多设备上报不再相互覆盖），迁移说明见
+[docs/design/tdengine-stable-migration.md](docs/design/tdengine-stable-migration.md)，
+迁移脚本为 [scripts/tdengine-migrate.sh](scripts/tdengine-migrate.sh)。
+
 工具：
 - [scripts/load-test.sh](scripts/load-test.sh)：一键注册设备 + 启动压测
 - [cmd/latencyprobe](cmd/latencyprobe/)：端到端延迟探针（发布 → 平台消费 → TDengine → 查询可见）
@@ -148,7 +153,7 @@ internal/platform/     # 平台：httpapi / mqtt / storage / memory / domain / o
 internal/devicesim/    # 模拟器实现
 frontend/              # Vue3 运维控制台
 migrations/            # PostgreSQL schema
-scripts/               # emqx-init / make-jwt / load-test
+scripts/               # emqx-init / make-jwt / load-test / tdengine-migrate
 docs/                  # 需求、设计、API 契约、测试、运维文档
 ```
 
@@ -175,7 +180,7 @@ docs/                  # 需求、设计、API 契约、测试、运维文档
 
 - [x] 登录端点（`POST /api/auth/login`，JWT 携带 role claim；角色分级待做）
 - [x] 完成 1000 台设备压测并回填 load-test.md（2026-08-03，见压力测试段落）
-- [ ] TDengine 超级表/子表改造（当前单表 ts 主键，同毫秒多设备上报相互覆盖）
+- [x] TDengine 超级表/子表改造（每设备子表独立 ts 主键，同毫秒多设备上报不再相互覆盖；迁移见 `scripts/tdengine-migrate.sh`）
 - [ ] 平台消费端多 worker + 产品查询缓存 + TDengine 批量写入（支撑更高吞吐）
 - [ ] 遥测链路引入 Kafka 削峰（设备规模上来后需要）
 - [ ] 规则 CRUD 与告警自动恢复

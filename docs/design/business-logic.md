@@ -214,10 +214,16 @@ GET /api/devices/{id}/commands/{command_id} 查询状态
 | 数据 | 存储 | 策略 |
 | --- | --- | --- |
 | 产品/设备/规则/告警/指令/影子/固件/OTA | PostgreSQL | 权威存储，事务保证一致性 |
-| 遥测 | TDengine | 单表 `iot_telemetry.telemetry(ts, device_id, product_key, payload NCHAR(4096))`，保留 3650 天 |
+| 遥测 | TDengine | 超级表 `iot_telemetry.telemetry(ts, payload NCHAR(4096)) TAGS (device_id BINARY(128), product_key BINARY(128))`，每设备一个子表 `t_<md5(device_id) 前 8 字节 hex>`，保留 3650 天 |
 | 设备在线状态 | Redis `device:online:<id>` | TTL 10 分钟，上线 SET / 下线 DEL |
 | 影子缓存 | Redis `device:shadow:<id>` | 写入时更新，读取时优先缓存、PG 兜底 |
 | 规则窗口状态 | 进程内存 | 重启重置（允许） |
+
+遥测落库走 `INSERT INTO <子表> USING iot_telemetry.telemetry TAGS (...) VALUES (...)`
+自动建子表（幂等、并发安全），写入与查询均按设备分区，`device_id`/`product_key`
+作为标签随子表存储，查询结果由应用层回填。由单普通表迁移到超级表模型的步骤见
+[tdengine-stable-migration.md](tdengine-stable-migration.md) 与
+`scripts/tdengine-migrate.sh`。
 
 ## 6. 容错与一致性机制
 
